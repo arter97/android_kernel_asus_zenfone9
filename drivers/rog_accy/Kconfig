@@ -1,0 +1,6 @@
+config ROG_ACCY_DRIVER
+    tristate "ROG Phone 6 ACCY driver"
+	default n
+	help
+		Enable ROG Phone 6 ACCY drvier kernel module
+		If unsure, say N.

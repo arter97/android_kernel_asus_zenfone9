@@ -1240,6 +1240,9 @@ struct drm_connector {
 	 */
 	bool ycbcr_420_allowed;
 
+	bool under_60hz_allowed;
+	bool wide_aspect_allowed;
+
 	/**
 	 * @registration_state: Is this connector initializing, exposed
 	 * (registered) with userspace, or unregistered?

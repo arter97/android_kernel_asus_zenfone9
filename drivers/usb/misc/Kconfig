@@ -275,3 +275,15 @@ config USB_CHAOSKEY
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called chaoskey.
+
+config USB_HUB_USB3803
+	tristate "USB3803 Hub Driver"
+	depends on I2C
+	help
+	　　Say Y here if device have USB3803 internal.
+
+config USB_REDRIVER_TUSB212
+	tristate "TUSB212 Redriver Driver"
+	depends on I2C
+	help
+	　　Say Y here if device have TUSB212 internal.

@@ -1066,6 +1066,12 @@ LDFLAGS_vmlinux += --build-id=sha1
 KBUILD_LDFLAGS	+= -z noexecstack
 KBUILD_LDFLAGS	+= $(call ld-option,--no-warn-rwx-segments)
 
+export ASUS_BUILD_PROJECT := AI2202
+export ASUS_AI2202_AUDIO := y
+export ASUS_AI2202_CAMERA := y
+export ASUS_AI2202_DISPLAY := y
+KBUILD_CPPFLAGS += -DASUS_AI2202_PROJECT=1
+
 ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
 LDFLAGS_vmlinux	+= $(call ld-option, -X,)
 endif
@@ -1446,7 +1452,8 @@ endif
 
 uts_len := 64
 ifneq (,$(BUILD_NUMBER))
-	UTS_RELEASE=$(KERNELRELEASE)-ab$(BUILD_NUMBER)
+	#UTS_RELEASE=$(KERNELRELEASE)-ab$(BUILD_NUMBER)
+	UTS_RELEASE=$(KERNELRELEASE)
 else
 	UTS_RELEASE=$(KERNELRELEASE)
 endif

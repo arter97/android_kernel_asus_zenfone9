@@ -211,3 +211,7 @@ config SCSI_UFS_HPB
 	  L2P (logical to physical) map of UFS to host DRAM. The driver uses HPB
 	  read command by piggybacking physical page number for bypassing FTL (flash
 	  translation layer)'s L2P address translation.
+
+config SCSI_UFS_ASUS
+	bool "ASUS get ufs status"
+	default n

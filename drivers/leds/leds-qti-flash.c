@@ -126,6 +126,10 @@
 
 #define LED_MASK_ALL(led)		GENMASK(led->max_channels - 1, 0)
 
+#ifdef ASUS_AI2201_PROJECT
+extern int qti_battery_charger_get_prop(const char *name, enum battery_charger_prop prop_id, int *val); //ASUS_BSP +
+#endif
+
 enum flash_led_type {
 	FLASH_LED_TYPE_UNKNOWN,
 	FLASH_LED_TYPE_FLASH,

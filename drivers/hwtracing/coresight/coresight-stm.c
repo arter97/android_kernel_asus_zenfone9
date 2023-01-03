@@ -174,6 +174,7 @@ static void stm_port_enable_hw(struct stm_drvdata *drvdata)
 
 static void stm_enable_hw(struct stm_drvdata *drvdata)
 {
+	unsigned long stmsper;
 	if (drvdata->stmheer)
 		stm_hwevent_enable_hw(drvdata);
 
@@ -188,6 +189,10 @@ static void stm_enable_hw(struct stm_drvdata *drvdata)
 			0x01),			 /* global STM enable */
 			drvdata->base + STMTCSR);
 
+	stmsper = readl_relaxed(drvdata->base + STMSPER);
+	writel_relaxed(0x0, drvdata->base + STMSPER);
+	writel_relaxed(0x10000003, drvdata->base + STMSPSCR);
+	writel_relaxed(stmsper, drvdata->base + STMSPER);
 	CS_LOCK(drvdata->base);
 }
 

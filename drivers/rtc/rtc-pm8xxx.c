@@ -230,6 +230,53 @@ rtc_rw_fail:
 	return rc;
 }
 
+//[+++]ASUS_BSP for battery safety Upgrade and battery health
+struct pm8xxx_rtc *asus_rtc_dd;
+unsigned long asus_qpnp_rtc_read_time(void)
+{
+	int rc=-1;
+	u8 value[NUM_8_BIT_RTC_REGS];
+	unsigned long secs;
+	unsigned int reg;
+	const struct pm8xxx_rtc_regs *regs = asus_rtc_dd->regs;
+
+	if(!asus_rtc_dd){
+		pr_err("asus rtc add is NULL!\n");
+		return rc;
+	}
+
+	rc = regmap_bulk_read(asus_rtc_dd->regmap, regs->read, value, sizeof(value));
+	if (rc) {
+		pr_err("RTC read data register failed\n");
+		return rc;
+	}
+
+	/*
+	 * Read the LSB again and check if there has been a carry over.
+	 * If there is, redo the read operation.
+	 */
+	rc = regmap_read(asus_rtc_dd->regmap, regs->read, &reg);
+	if (rc < 0) {
+		pr_err("RTC read data register failed\n");
+		return rc;
+	}
+
+	if (unlikely(reg < value[0])) {
+		rc = regmap_bulk_read(asus_rtc_dd->regmap, regs->read,
+				      value, sizeof(value));
+		if (rc) {
+			pr_err("RTC read data register failed\n");
+			return rc;
+		}
+	}
+
+	secs = value[0] | (value[1] << 8) | (value[2] << 16) | (value[3] << 24);
+
+	return secs;
+}
+EXPORT_SYMBOL(asus_qpnp_rtc_read_time);
+//[+++]ASUS_BSP for battery safety Upgrade and battery health
+
 static int pm8xxx_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	int rc;
@@ -555,6 +602,9 @@ static const struct of_device_id pm8xxx_id_table[] = {
 };
 MODULE_DEVICE_TABLE(of, pm8xxx_id_table);
 
+bool rtc_probe_done = false; //ASUS_BSP for battery safety Upgrade and battery health
+EXPORT_SYMBOL(rtc_probe_done);
+
 static int pm8xxx_rtc_probe(struct platform_device *pdev)
 {
 	int rc;
@@ -619,6 +669,11 @@ static int pm8xxx_rtc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Register RTC device failed\n");
 		return rc;
 	}
+
+//[+++]ASUS_BSP for battery safety Upgrade and battery health
+	asus_rtc_dd = rtc_dd;
+	rtc_probe_done = true;
+//[---]ASUS_BSP for battery safety Upgrade and battery health
 
 	return pm8xxx_rtc_init_alarm(rtc_dd);
 }

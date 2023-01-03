@@ -160,6 +160,10 @@ int msm_ep_update_ops(struct usb_ep *ep);
 int msm_ep_clear_ops(struct usb_ep *ep);
 int msm_ep_set_mode(struct usb_ep *ep, enum usb_hw_ep_mode mode);
 int dwc3_core_stop_hw_active_transfers(struct dwc3 *dwc);
+#ifdef ASUS_AI2201_PROJECT
+int msm_usb_dp_wait_synced_1(void);
+#endif
+
 #else
 void dwc3_msm_notify_event(struct dwc3 *dwc,
 		enum dwc3_notify_event event, unsigned int value)

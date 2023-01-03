@@ -27,6 +27,7 @@
 #define UC_UCSI_READ_BUF_REQ		0x11
 #define UC_UCSI_WRITE_BUF_REQ		0x12
 #define UC_UCSI_USBC_NOTIFY_IND		0x13
+#define UC_UCSI_WRITE_CC_REQ		0x17
 
 /* Generic definitions */
 #define CMD_PENDING			1
@@ -54,6 +55,11 @@ struct ucsi_write_buf_req_msg {
 	struct pmic_glink_hdr	hdr;
 	u8			buf[UCSI_BUF_SIZE];
 	u32			reserved;
+};
+
+struct ucsi_write_cc_req_msg {
+	struct pmic_glink_hdr	hdr;
+	u8			value;
 };
 
 struct ucsi_write_buf_resp_msg {
@@ -93,6 +99,8 @@ struct ucsi_dev {
 	struct work_struct		setup_work;
 	atomic_t			state;
 };
+
+struct ucsi_dev *g_udev;
 
 static void *ucsi_ipc_log;
 static RAW_NOTIFIER_HEAD(ucsi_glink_notifier);
@@ -260,6 +268,8 @@ static int ucsi_callback(void *priv, void *data, size_t len)
 		handle_ucsi_write_ack(udev, data, len);
 	else if (hdr->opcode == UC_UCSI_USBC_NOTIFY_IND)
 		handle_ucsi_notify(udev, data, len);
+	else if (hdr->opcode == UC_UCSI_WRITE_CC_REQ)
+		handle_ucsi_write_ack(udev, data, len);
 	else
 		pr_err("Unknown message opcode: %d\n", hdr->opcode);
 
@@ -278,6 +288,43 @@ static bool validate_ucsi_msg(unsigned int offset, size_t len)
 
 	return true;
 }
+
+int ucsi_typec_mode_enable(bool enable)
+{
+	struct ucsi_write_cc_req_msg ucsi_cc = { { 0 } };
+	int rc;
+	struct ucsi_dev *udev = g_udev;
+
+	ucsi_cc.hdr.owner = MSG_OWNER_UC;
+	ucsi_cc.hdr.type = MSG_TYPE_REQ_RESP;
+	ucsi_cc.hdr.opcode = UC_UCSI_WRITE_CC_REQ;
+	ucsi_cc.value = enable;
+
+	mutex_lock(&udev->write_lock);
+	reinit_completion(&udev->write_ack);
+
+	rc = pmic_glink_write(udev->client, &ucsi_cc,
+					sizeof(ucsi_cc));
+	if (rc < 0) {
+		pr_err("Error in sending message rc=%d\n", rc);
+		goto out;
+	}
+
+	rc = wait_for_completion_timeout(&udev->write_ack,
+				msecs_to_jiffies(UCSI_WAIT_TIME_MS));
+	if (!rc) {
+		pr_err("timed out\n");
+		rc = -ETIMEDOUT;
+		goto out;
+	} else {
+		rc = 0;
+	}
+
+out:
+	mutex_unlock(&udev->write_lock);
+	return rc;
+}
+EXPORT_SYMBOL(ucsi_typec_mode_enable);
 
 #define CONN_STAT_REQD	1
 static int ucsi_qti_glink_write(struct ucsi_dev *udev, unsigned int offset,
@@ -658,7 +705,7 @@ static int ucsi_probe(struct platform_device *pdev)
 		ucsi_ipc_log = NULL;
 		pmic_glink_unregister_client(udev->client);
 	}
-
+	g_udev = udev;
 	return rc;
 }
 

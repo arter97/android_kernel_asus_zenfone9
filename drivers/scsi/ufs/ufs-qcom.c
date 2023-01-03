@@ -35,6 +35,10 @@
 #include "ufshcd-crypto-qti.h"
 #include <trace/hooks/ufshcd.h>
 
+#ifdef CONFIG_SCSI_UFS_ASUS
+#include "ufs-qcom_asus.h"
+#endif
+
 #define UFS_QCOM_DEFAULT_DBG_PRINT_EN	\
 	(UFS_QCOM_DBG_PRINT_REGS_EN | UFS_QCOM_DBG_PRINT_TEST_BUS_EN)
 
@@ -3454,6 +3458,10 @@ static int ufs_qcom_init(struct ufs_hba *hba)
 	if (!host->ufs_ipc_log_ctx)
 		dev_warn(dev, "IPC Log init - failed\n");
 
+#ifdef CONFIG_SCSI_UFS_ASUS
+	ufshcd_add_sysfs_nodes(host);
+#endif
+
 	goto out;
 
 out_disable_vccq_parent:
@@ -3473,6 +3481,10 @@ out:
 static void ufs_qcom_exit(struct ufs_hba *hba)
 {
 	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
+
+#ifdef CONFIG_SCSI_UFS_ASUS
+	ufshcd_remove_sysfs_nodes(host);
+#endif
 
 	ufs_qcom_disable_lane_clks(host);
 	ufs_qcom_phy_power_off(hba);

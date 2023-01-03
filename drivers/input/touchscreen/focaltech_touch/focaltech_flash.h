@@ -75,7 +75,7 @@
 #define FTS_FLASH_PACKET_LENGTH                     32     /* max=128 */
 #define FTS_MAX_LEN_ECC_CALC                        0xFFFE /* must be even */
 #define FTS_MIN_LEN                                 0x120
-#define FTS_MAX_LEN_FILE                            (128 * 1024)
+#define FTS_MAX_LEN_FILE                            (256 * 1024)
 #define FTS_MAX_LEN_APP                             (64 * 1024)
 #define FTS_MAX_LEN_SECTOR                          (4 * 1024)
 #define FTS_CONIFG_VENDORID_OFF                     0x04

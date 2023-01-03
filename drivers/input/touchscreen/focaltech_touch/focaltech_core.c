@@ -71,11 +71,11 @@
 * Private constant and macro definitions using #define
 *****************************************************************************/
 #define FTS_DRIVER_NAME                     "fts_ts"
-#define INTERVAL_READ_REG                   200  /* unit:ms */
+#define INTERVAL_READ_REG                   50  /* unit:ms */
 #define TIMEOUT_READ_REG                    1000 /* unit:ms */
 #if FTS_POWER_SOURCE_CUST_EN
-#define FTS_VTG_MIN_UV                      3000000
-#define FTS_VTG_MAX_UV                      3300000
+#define FTS_VTG_MIN_UV                      2800000
+#define FTS_VTG_MAX_UV                      3008000
 #define FTS_LOAD_MAX_UA                     30000
 #define FTS_LOAD_AVDD_UA                    10000
 #define FTS_LOAD_DISABLE_UA                 0
@@ -97,7 +97,6 @@ static void fts_ts_panel_notifier_callback(enum panel_event_notifier_tag tag,
 static struct ft_chip_t ctype[] = {
 	{0x88, 0x56, 0x52, 0x00, 0x00, 0x00, 0x00, 0x56, 0xB2},
 	{0x81, 0x54, 0x52, 0x54, 0x52, 0x00, 0x00, 0x54, 0x5C},
-	{0x1C, 0x87, 0x26, 0x87, 0x20, 0x87, 0xA0, 0x00, 0x00},
 };
 
 /*****************************************************************************
@@ -2301,38 +2300,60 @@ static int fts_ts_enable_reg(struct fts_ts_data *ts_data, bool enable)
 
 static int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable)
 {
-	int ret = 0;
+    int ret = 0;
 
-	if (IS_ERR_OR_NULL(ts_data->vdd)) {
-		FTS_ERROR("vdd is invalid");
-		return -EINVAL;
-	}
+    if (IS_ERR_OR_NULL(ts_data->vdd)) {
+        FTS_ERROR("vdd is invalid");
+        return -EINVAL;
+    }
 
-	FTS_FUNC_ENTER();
-	if (enable) {
-		if (ts_data->power_disabled) {
-			FTS_DEBUG("regulator enable !");
-			gpio_direction_output(ts_data->pdata->reset_gpio, 0);
-			msleep(1);
-			ret = fts_ts_enable_reg(ts_data, true);
-			if (ret)
-				FTS_ERROR("Touch reg enable failed\n");
-			ts_data->power_disabled = false;
-		}
-	} else {
-		if (!ts_data->power_disabled) {
-			FTS_DEBUG("regulator disable !");
-			gpio_direction_output(ts_data->pdata->reset_gpio, 0);
-			msleep(1);
-			ret = fts_ts_enable_reg(ts_data, false);
-			if (ret)
-				FTS_ERROR("Touch reg disable failed");
-			ts_data->power_disabled = true;
-		}
-	}
+    FTS_FUNC_ENTER();
+    if (enable) {
+        if (ts_data->power_disabled) {
+            FTS_DEBUG("regulator enable !");
+            gpio_direction_output(ts_data->pdata->reset_gpio, 0);
+            msleep(1);
 
-	FTS_FUNC_EXIT();
-	return ret;
+            if (!IS_ERR_OR_NULL(ts_data->vcc_i2c)) {
+                ret = regulator_enable(ts_data->vcc_i2c);
+                if (ret) {
+                    FTS_ERROR("enable vcc_i2c regulator failed,ret=%d", ret);
+                }
+            }
+            gpio_direction_output(ts_data->pdata->vddio, 1);
+
+            msleep(1);
+
+            ret = regulator_enable(ts_data->vdd);
+            if (ret) {
+                FTS_ERROR("enable vdd regulator failed,ret=%d", ret);
+            }
+
+            ts_data->power_disabled = false;
+        }
+    } else {
+        if (!ts_data->power_disabled) {
+            FTS_DEBUG("regulator disable !");
+            gpio_direction_output(ts_data->pdata->reset_gpio, 0);
+            msleep(10);
+            gpio_direction_output(ts_data->pdata->vddio, 0);
+            msleep(1);
+            ret = regulator_disable(ts_data->vdd);
+            if (ret) {
+                FTS_ERROR("disable vdd regulator failed,ret=%d", ret);
+            }
+            if (!IS_ERR_OR_NULL(ts_data->vcc_i2c)) {
+                ret = regulator_disable(ts_data->vcc_i2c);
+                if (ret) {
+                    FTS_ERROR("disable vcc_i2c regulator failed,ret=%d", ret);
+                }
+            }
+            ts_data->power_disabled = true;
+        }
+    }
+
+    FTS_FUNC_EXIT();
+    return ret;
 }
 
 /*****************************************************************************
@@ -2467,9 +2488,27 @@ static int fts_gpio_configure(struct fts_ts_data *data)
 		}
 	}
 
+	/* request vddio gpio */
+	if (gpio_is_valid(data->pdata->vddio)) {
+		ret = gpio_request(data->pdata->vddio, "fts_vddio");
+		if (ret) {
+			FTS_ERROR("[GPIO]reset gpio request failed");
+			goto err_irq_gpio_dir;
+		}
+
+		ret = gpio_direction_output(data->pdata->vddio, 0);
+		if (ret) {
+			FTS_ERROR("[GPIO]set_direction for reset gpio failed");
+			goto err_vddio_dir;
+		}
+	}
+
 	FTS_FUNC_EXIT();
 	return 0;
 
+err_vddio_dir:
+    if (gpio_is_valid(data->pdata->vddio))
+        gpio_free(data->pdata->vddio);
 err_reset_gpio_dir:
 	if (gpio_is_valid(data->pdata->reset_gpio))
 		gpio_free(data->pdata->reset_gpio);
@@ -2580,6 +2619,13 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
 	if (pdata->irq_gpio < 0)
 		FTS_ERROR("Unable to get irq_gpio");
 
+
+    pdata->vddio = of_get_named_gpio_flags(np, "focaltech,vddio",
+                      0, &pdata->vddio_flags);
+
+    if (pdata->vddio < 0)
+        FTS_ERROR("Unable to get vddio");
+
 	ret = of_property_read_u32(np, "focaltech,max-touch-number", &temp_val);
 	if (ret < 0) {
 		FTS_ERROR("Unable to get max-touch-number, please check dts");
@@ -2593,12 +2639,12 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
 			pdata->max_touch_number = temp_val;
 	}
 
-	FTS_INFO("max touch number:%d, irq gpio:%d, reset gpio:%d",
-		pdata->max_touch_number, pdata->irq_gpio, pdata->reset_gpio);
+    FTS_INFO("max touch number:%d, irq gpio:%d, reset gpio:%d, vddio:%d",
+             pdata->max_touch_number, pdata->irq_gpio, pdata->reset_gpio,pdata->vddio);
 
 	ret = of_property_read_u32(np, "focaltech,ic-type", &temp_val);
 	if (ret < 0)
-		pdata->type = _FT3518;
+		pdata->type = _FT3658U;
 	else
 		pdata->type = temp_val;
 
@@ -2753,7 +2799,8 @@ static int fts_ts_probe_delayed(struct fts_ts_data *fts_data)
 	}
 #endif
 
-	fts_reset_proc(200);
+	if (!FTS_CHIP_IDC(fts_data->pdata->type))
+		fts_reset_proc(200);
 
 	ret = fts_get_ic_information(fts_data);
 	if (ret) {
@@ -2890,25 +2937,11 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 	fts_ts_trusted_touch_init(ts_data);
 	mutex_init(&(ts_data->fts_clk_io_ctrl_mutex));
 #endif
-
-#ifndef CONFIG_ARCH_QTI_VM
-	if (ts_data->pdata->type == _FT8726) {
-		atomic_set(&ts_data->delayed_vm_probe_pending, 1);
-		ts_data->suspended = true;
-	} else {
-		ret = fts_ts_probe_delayed(ts_data);
-		if (ret) {
-			FTS_ERROR("Failed to enable resources\n");
-			goto err_probe_delayed;
-		}
-	}
-#else
 	ret = fts_ts_probe_delayed(ts_data);
 	if (ret) {
 		FTS_ERROR("Failed to enable resources\n");
 		goto err_probe_delayed;
 	}
-#endif
 
 #if defined(CONFIG_DRM)
 	if (ts_data->ts_workqueue)
@@ -2997,6 +3030,8 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 	if (gpio_is_valid(ts_data->pdata->irq_gpio))
 		gpio_free(ts_data->pdata->irq_gpio);
 
+    if (gpio_is_valid(ts_data->pdata->vddio))
+	gpio_free(ts_data->pdata->vddio);
 #if FTS_POWER_SOURCE_CUST_EN
 	fts_power_source_exit(ts_data);
 #endif
@@ -3076,7 +3111,6 @@ static int fts_ts_suspend(struct device *dev)
 static int fts_ts_resume(struct device *dev)
 {
 	struct fts_ts_data *ts_data = fts_data;
-	int ret = 0;
 
 	FTS_FUNC_ENTER();
 	if (!ts_data->suspended) {
@@ -3090,18 +3124,6 @@ static int fts_ts_resume(struct device *dev)
 		wait_for_completion_interruptible(
 			&ts_data->trusted_touch_powerdown);
 #endif
-
-	if (ts_data->pdata->type == _FT8726 &&
-			atomic_read(&ts_data->delayed_vm_probe_pending)) {
-		ret = fts_ts_probe_delayed(ts_data);
-		if (ret) {
-			FTS_ERROR("Failed to enable resources\n");
-			return ret;
-		}
-		ts_data->suspended = false;
-		atomic_set(&ts_data->delayed_vm_probe_pending, 0);
-		return ret;
-	}
 
 	mutex_lock(&ts_data->transition_lock);
 
@@ -3141,7 +3163,7 @@ static int fts_ts_resume(struct device *dev)
 /*****************************************************************************
 * TP Driver
 *****************************************************************************/
-static int fts_ts_check_dt(struct device_node *np)
+/*static int fts_ts_check_dt(struct device_node *np)
 {
 	int i;
 	int count;
@@ -3208,21 +3230,21 @@ static int fts_ts_check_default_tp(struct device_node *dt, const char *prop)
 out:
 	kfree(active_tp);
 	return ret;
-}
+}*/
 
 static int fts_ts_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	int ret = 0;
 	struct fts_ts_data *ts_data = NULL;
-	struct device_node *dp = client->dev.of_node;
+	//struct device_node *dp = client->dev.of_node;
 
-	FTS_INFO("Touch Screen(I2C BUS) driver prboe...");
+	FTS_INFO("Touch Screen(I2C BUS) driver probe...");
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		FTS_ERROR("I2C not supported");
 		return -ENODEV;
 	}
-
-	ret = fts_ts_check_dt(dp);
+	FTS_INFO("bypass check dt...");
+	/*ret = fts_ts_check_dt(dp);
 	if (ret == -EPROBE_DEFER)
 		return ret;
 
@@ -3233,7 +3255,7 @@ static int fts_ts_i2c_probe(struct i2c_client *client, const struct i2c_device_i
 			ret = -ENODEV;
 
 		return ret;
-	}
+	}*/
 
 	/* malloc memory for global struct variable */
 	ts_data = (struct fts_ts_data *)kzalloc(sizeof(*ts_data), GFP_KERNEL);
@@ -3257,7 +3279,7 @@ static int fts_ts_i2c_probe(struct i2c_client *client, const struct i2c_device_i
 		return ret;
 	}
 
-	FTS_INFO("Touch Screen(I2C BUS) driver prboe successfully");
+	FTS_INFO("Touch Screen(I2C BUS) driver probe successfully");
 	return 0;
 }
 
@@ -3271,7 +3293,7 @@ static const struct i2c_device_id fts_ts_i2c_id[] = {
 	{},
 };
 static const struct of_device_id fts_dt_match[] = {
-	{.compatible = "focaltech,fts_ts", },
+	{.compatible = "focaltech,fts", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, fts_dt_match);
@@ -3305,103 +3327,6 @@ static void __exit fts_ts_i2c_exit(void)
 	i2c_del_driver(&fts_ts_i2c_driver);
 }
 
-static int fts_ts_spi_probe(struct spi_device *spi)
-{
-	int ret = 0;
-	struct fts_ts_data *ts_data = NULL;
-	struct device_node *dp = spi->dev.of_node;
-
-	FTS_INFO("Touch Screen(SPI BUS) driver prboe...");
-
-	ret = fts_ts_check_dt(dp);
-	if (ret == -EPROBE_DEFER)
-		return ret;
-
-	if (ret) {
-		if (!fts_ts_check_default_tp(dp, "qcom,spi-touch-active"))
-			ret = -EPROBE_DEFER;
-		else
-			ret = -ENODEV;
-
-		return ret;
-	}
-
-	spi->mode = SPI_MODE_0;
-	spi->bits_per_word = 8;
-	ret = spi_setup(spi);
-	if (ret) {
-		FTS_ERROR("spi setup fail");
-		return ret;
-	}
-
-	/* malloc memory for global struct variable */
-	ts_data = kzalloc(sizeof(*ts_data), GFP_KERNEL);
-	if (!ts_data) {
-		FTS_ERROR("allocate memory for fts_data fail");
-		return -ENOMEM;
-	}
-
-	fts_data = ts_data;
-	ts_data->spi = spi;
-	ts_data->dev = &spi->dev;
-	ts_data->log_level = 1;
-
-	ts_data->bus_type = BUS_TYPE_SPI_V2;
-	spi_set_drvdata(spi, ts_data);
-
-	ret = fts_ts_probe_entry(ts_data);
-	if (ret) {
-		FTS_ERROR("Touch Screen(SPI BUS) driver probe fail");
-		kfree_safe(ts_data);
-		return ret;
-	}
-
-	FTS_INFO("Touch Screen(SPI BUS) driver prboe successfully");
-	return 0;
-}
-
-static int fts_ts_spi_remove(struct spi_device *spi)
-{
-	return fts_ts_remove_entry(spi_get_drvdata(spi));
-}
-
-static const struct spi_device_id fts_ts_spi_id[] = {
-	{FTS_DRIVER_NAME, 0},
-	{},
-};
-
-static struct spi_driver fts_ts_spi_driver = {
-	.probe = fts_ts_spi_probe,
-	.remove = fts_ts_spi_remove,
-	.driver = {
-		.name = FTS_DRIVER_NAME,
-		.owner = THIS_MODULE,
-#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
-		.pm = &fts_dev_pm_ops,
-#endif
-		.of_match_table = of_match_ptr(fts_dt_match),
-	},
-	.id_table = fts_ts_spi_id,
-};
-
-static int __init fts_ts_spi_init(void)
-{
-	int ret = 0;
-
-	FTS_FUNC_ENTER();
-	ret = spi_register_driver(&fts_ts_spi_driver);
-	if (ret != 0)
-		FTS_ERROR("Focaltech touch screen driver init failed!");
-
-	FTS_FUNC_EXIT();
-	return ret;
-}
-
-static void __exit fts_ts_spi_exit(void)
-{
-	spi_unregister_driver(&fts_ts_spi_driver);
-}
-
 static int __init fts_ts_init(void)
 {
 	int ret = 0;
@@ -3410,17 +3335,12 @@ static int __init fts_ts_init(void)
 	if (ret)
 		FTS_ERROR("Focaltech I2C driver init failed!");
 
-	ret = fts_ts_spi_init();
-	if (ret)
-		FTS_ERROR("Focaltech SPI driver init failed!");
-
 	return ret;
 }
 
 static void __exit fts_ts_exit(void)
 {
 	fts_ts_i2c_exit();
-	fts_ts_spi_exit();
 }
 
 #ifdef CONFIG_ARCH_QTI_VM

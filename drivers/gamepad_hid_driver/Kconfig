@@ -1,0 +1,6 @@
+config KUNAI3_DRIVER
+	tristate "ASUS Kuni3 GamePad"
+	default n
+	help
+		Enable Kuni3 GamePad driver
+		If unsure, say N.

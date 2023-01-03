@@ -29,3 +29,9 @@ obj-$(CONFIG_INPUT_MISC)	+= misc/
 obj-$(CONFIG_INPUT_APMPOWER)	+= apm-power.o
 
 obj-$(CONFIG_RMI4_CORE)		+= rmi4/
+
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+obj-$(CONFIG_GOODIX_FINGERPRINT) += fingerprint/
+else ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+obj-$(CONFIG_GOODIX3626_FINGERPRINT)	+= fingerprint3626/
+endif

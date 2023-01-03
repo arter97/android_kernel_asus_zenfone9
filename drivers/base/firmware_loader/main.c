@@ -521,6 +521,42 @@ fw_get_filesystem_firmware(struct device *device, struct fw_priv *fw_priv,
 			break;
 		}
 
+                /* ASUS BSP : For Change Sensor Core FW loading path */
+                if (!strncmp(fw_priv->fw_name, "slpi", 4)) {
+                        snprintf(path, PATH_MAX, "%s/%s", "/vendor/firmware", fw_priv->fw_name);
+                        dev_err(device, "[SLPI] Try to load firmware : %s \n", path);
+                }
+                /* ASUS BSP ---*/
+
+#ifdef ASUS_AI2201_PROJECT
+		if (!strncmp(fw_priv->fw_name, "bdwlan", 6)) {
+			snprintf(path, PATH_MAX, "%s", "/vendor/firmware/bdwlan.e9a");
+			dev_err(device, "[wlan] Try to load firmware : %s \n", path);
+		}
+#endif
+
+		if (!strncmp(fw_priv->fw_name, "amss20", 6)) {
+			snprintf(path, PATH_MAX, "%s", "/vendor/firmware/amss20.bin");
+			dev_err(device, "[wlan] Try to load firmware : %s \n", path);
+		}
+		if (!strncmp(fw_priv->fw_name, "regdb", 5)) {
+			snprintf(path, PATH_MAX, "%s", "/vendor/firmware/regdb.bin");
+			dev_err(device, "[wlan] Try to load firmware : %s \n", path);
+		}
+		if (!strncmp(fw_priv->fw_name, "m3.bin", 6)) {
+			snprintf(path, PATH_MAX, "%s", "/vendor/firmware/m3.bin");
+			dev_err(device, "[wlan] Try to load firmware : %s \n", path);
+		}
+
+                /* +++ ASUS BSP : change cdsp fw path */
+#ifdef ASUS_AI2201_PROJECT
+		if (!strncmp(fw_priv->fw_name, "cdsp", 4)) {
+			snprintf(path, PATH_MAX, "%s/%s", "/vendor/firmware", fw_priv->fw_name);
+			dev_err(device, "[CDSP] Try to load firmware: %s\n", path);
+		}
+#endif
+                /* --- ASUS BSP : change cdsp fw path */
+
 		fw_priv->size = 0;
 
 		/*

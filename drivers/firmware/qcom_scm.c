@@ -34,7 +34,7 @@
 static bool download_mode = IS_ENABLED(CONFIG_QCOM_SCM_DOWNLOAD_MODE_DEFAULT);
 module_param(download_mode, bool, 0);
 
-static unsigned int pas_shutdown_retry_interval = 100;
+static unsigned int pas_shutdown_retry_interval = 500;
 module_param(pas_shutdown_retry_interval, uint, 0644);
 static unsigned int pas_shutdown_retry_max = 50;
 module_param(pas_shutdown_retry_max, uint, 0644);

@@ -189,6 +189,9 @@
 /* BAM pipe mask */
 #define MSM_PIPE_ID_MASK	(0x1F)
 
+#define AI2201_8450 457
+#define AI2201_8475 530
+
 enum dbm_reg {
 	DBM_EP_CFG,
 	DBM_DATA_FIFO,
@@ -359,6 +362,13 @@ enum bus_vote {
 	BUS_VOTE_MAX
 };
 
+enum usb_path {
+	NONE,
+	SIDE,
+	BTM,
+	HUB
+};
+
 static const char * const icc_path_names[] = {
 	"usb-ddr", "usb-ipa", "ddr-usb",
 };
@@ -443,6 +453,14 @@ struct extcon_nb {
 	struct notifier_block	id_nb;
 };
 
+#ifdef ASUS_AI2201_PROJECT
+struct gpio_control_mux {
+	u32 MUX1_OE;
+	u32 MUX2_OE;
+	u32 MUX2_SEL; //MUX1_SEL sync with MUX2_SEL
+};
+#endif
+
 /* Input bits to state machine (mdwc->inputs) */
 
 #define ID			0
@@ -452,6 +470,63 @@ struct extcon_nb {
 
 #define PM_QOS_SAMPLE_SEC	2
 #define PM_QOS_THRESHOLD	400
+
+struct completion usb_host_complete1;
+
+#ifdef ASUS_AI2201_PROJECT
+int msm_usb_dp_wait_synced_1(void) {
+	pr_err("[DP] DP wait for USB completion\n");
+	return (int)wait_for_completion_timeout(&usb_host_complete1, HZ * 3);
+}
+EXPORT_SYMBOL(msm_usb_dp_wait_synced_1);
+#endif
+
+#ifdef ASUS_AI2201_PROJECT
+struct gpio_control_mux *mux_gpio_ctrl;
+static int mux_init(struct dwc3_msm *mdwc);
+static void mux2_switch(int val);
+int hwid = 0;
+int socid = 0;
+//prodongle ++
+static int ProDock_hub1_bus = 0;
+static int ProDock_hub2_bus = 0;
+static int ProDock_hub1_dev = 0;
+static int ProDock_hub2_dev = 0;
+static int ProDock_extra_device_count = 0;
+static int ProDock_state = 0;
+module_param(ProDock_state, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(ProDock_state,
+		 "ProDock_state undetect=0, detect=1, with_device=2");
+char ProDock_fw_ver[5];
+module_param_string(ProDock_fw_ver, ProDock_fw_ver, sizeof(ProDock_fw_ver), S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(DT_hub1_ver,
+		 "ProDock_fw_ver");
+static void check_asus_device(struct usb_device *udev, unsigned long event);
+
+int get_prodock_state(void)
+{
+	return ProDock_state;
+}
+EXPORT_SYMBOL_GPL(get_prodock_state);
+//prodongle --
+
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+void usb_path_switch(int val);
+extern int usb3803_set_mode(int mode);
+extern int tusb212_enable(int mode);
+extern void tusb212_set_usb_btm_role(enum usb_role role);
+int current_path = 0;
+int side_connected = 0;
+#endif
+#endif
+
+extern int ucsi_typec_mode_enable(bool enable);
+static int dwc3_start_stop_host(struct dwc3_msm *mdwc, bool start);
+
+extern void repeater_set_usb_role(enum usb_role role);
+
+enum usb_role side_role;
+enum usb_role btm_role;
 
 struct dwc3_msm {
 	struct device *dev;
@@ -585,11 +660,16 @@ struct dwc3_msm {
 #define USB_SSPHY_1P8_VOL_MAX		1800000 /* uV */
 #define USB_SSPHY_1P8_HPM_LOAD		23000	/* uA */
 
+struct dwc3_msm *g_mdwc;
+
 /* unfortunately, dwc3 core doesn't manage multiple dwc3 instances for trace */
 void *dwc_trace_ipc_log_ctxt;
 
 static void dwc3_pwr_event_handler(struct dwc3_msm *mdwc);
 static int get_chg_type(struct dwc3_msm *mdwc);
+
+static enum usb_role dwc3_msm_usb_role_switch_get_role(struct usb_role_switch *sw);
+static inline const char *usb_role_string(enum usb_role role);
 
 static inline void dwc3_msm_ep_writel(void __iomem *base, u32 offset, u32 value)
 {
@@ -678,17 +758,22 @@ static unsigned int dwc3_msm_set_max_speed(struct dwc3_msm *mdwc, enum usb_devic
 {
 	struct dwc3 *dwc;
 
+	dev_info(mdwc->dev, "[USB] %s: %d, override_usb_speed=%d\n", __func__, spd, mdwc->override_usb_speed);
 	if (spd == USB_SPEED_UNKNOWN || spd >= mdwc->max_hw_supp_speed)
 		spd = mdwc->max_hw_supp_speed;
+	if (mdwc->override_usb_speed && mdwc->override_usb_speed <= spd)
+		spd = mdwc->override_usb_speed;
+	dev_info(mdwc->dev, "[USB] %s: set speed=%d\n", __func__, spd);
 
 	if (!mdwc->dwc3) {
+		dev_info(mdwc->dev, "[USB] %s: override_usb_speed=%d\n", __func__, spd);
 		mdwc->override_usb_speed = spd;
 		return 0;
 	}
 
 	dwc = platform_get_drvdata(mdwc->dwc3);
 	dwc->maximum_speed = spd;
-
+	dev_info(mdwc->dev, "[USB] %s: maximum_speed=%d\n", __func__, dwc->maximum_speed);
 	return 0;
 }
 
@@ -4463,6 +4548,200 @@ static int dwc3_msm_extcon_register(struct dwc3_msm *mdwc)
 	return 0;
 }
 
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+static void restore_role_path(void){
+	struct dwc3_msm *mdwc = g_mdwc;
+
+	dev_info(mdwc->dev, "[USB] %s side_role=%s, btm_role=%s\n", __func__, usb_role_string(side_role),usb_role_string(btm_role));
+
+	if(side_role==USB_ROLE_DEVICE){
+		dev_info(mdwc->dev, "[USB] %s SIDE DEVICE\n", __func__);
+		mdwc->vbus_active = true;
+		mdwc->id_state = DWC3_ID_FLOAT;
+		usb_path_switch(SIDE);
+		side_connected = 1;
+	} else if (side_role==USB_ROLE_HOST){
+		dev_info(mdwc->dev, "[USB] %s SIDE HOST\n", __func__);
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_GROUND;
+		usb_path_switch(SIDE);
+		side_connected = 1;
+	} else if (btm_role==USB_ROLE_DEVICE){
+		dev_info(mdwc->dev, "[USB] %s BTM DEVICE\n", __func__);
+		mdwc->vbus_active = true;
+		mdwc->id_state = DWC3_ID_FLOAT;
+		usb_path_switch(BTM);
+		side_connected = 0;
+	} else if (btm_role==USB_ROLE_HOST){
+		dev_info(mdwc->dev, "[USB] %s BTM HOST\n", __func__);
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_GROUND;
+		usb_path_switch(BTM);
+		side_connected = 0;
+	} else {
+		dev_info(mdwc->dev, "[USB] %s NONE NONE\n", __func__);
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_FLOAT;
+		usb_path_switch(NONE);
+		side_connected = 0;
+	}
+
+	return;
+}
+#endif
+
+void rt1715_role_switch(enum usb_role role) {
+
+	struct dwc3_msm *mdwc = g_mdwc;
+	enum usb_role cur_role = USB_ROLE_NONE;
+
+	dev_info(mdwc->dev, "[USB] %s role = %d\n", __func__, role);
+	mutex_lock(&mdwc->role_switch_mutex);
+
+	cur_role = dwc3_msm_usb_role_switch_get_role(mdwc->role_switch);
+
+	dev_info(mdwc->dev, "[USB] %s cur_role:%s new_role:%s\n", __func__, usb_role_string(cur_role),
+						usb_role_string(role));
+	btm_role = role;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+	tusb212_set_usb_btm_role(btm_role);
+	if(current_path == HUB) {
+		dev_info(mdwc->dev, "[USB] %s HUB mode, ignore role switch.\n", __func__);
+		mutex_unlock(&mdwc->role_switch_mutex);
+		return;
+	}
+	if(side_connected == 1){
+		dev_info(mdwc->dev, "[USB] %s SIDE connected, ignore role switch.\n", __func__);
+		mutex_unlock(&mdwc->role_switch_mutex);
+		return;
+	}
+#endif
+	switch (role) {
+	case USB_ROLE_HOST:
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_GROUND;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(BTM);
+#endif
+		break;
+
+	case USB_ROLE_DEVICE:
+		mdwc->vbus_active = true;
+		mdwc->id_state = DWC3_ID_FLOAT;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(BTM);
+#endif
+		break;
+
+	case USB_ROLE_NONE:
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_FLOAT;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(NONE);
+#endif
+		break;
+	}
+	mutex_unlock(&mdwc->role_switch_mutex);
+
+	/*
+	 * For boot up without USB cable connected case, don't check
+	 * previous role value to allow resetting USB controller and
+	 * PHYs.
+	 */
+	if (mdwc->drd_state != DRD_STATE_UNDEFINED && cur_role == role) {
+		dev_info(mdwc->dev, "[USB] %s no USB role change\n", __func__);
+		return;
+	}
+
+	dwc3_ext_event_notify(mdwc);
+	return;
+}
+EXPORT_SYMBOL_GPL(rt1715_role_switch);
+
+#ifdef ASUS_AI2201_PROJECT
+void Inbox_role_switch(int enable) {
+
+	struct dwc3_msm *mdwc = g_mdwc;
+
+	dev_info(mdwc->dev, "[USB] %s %d\n", __func__, enable);
+	mutex_lock(&mdwc->role_switch_mutex);
+
+	if(enable){
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_GROUND;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		if(current_path!=HUB){
+			usb_path_switch(HUB);
+		}
+#endif
+	} else {
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		if(current_path!=HUB){
+			dev_err(mdwc->dev, "[USB] %s not in HUB mode, ignore!\n", __func__);
+			mutex_unlock(&mdwc->role_switch_mutex);
+			return;
+		}
+#endif
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_FLOAT;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		restore_role_path();
+#endif
+	}
+	mutex_unlock(&mdwc->role_switch_mutex);
+
+	dwc3_ext_event_notify(mdwc);
+	return;
+}
+EXPORT_SYMBOL_GPL(Inbox_role_switch);
+#endif
+
+void battery_role_switch(bool on)
+{
+	struct dwc3_msm *mdwc = g_mdwc;
+
+	if (!mdwc)
+		pr_err("%s dwc3 prode not completed\n");
+
+	dev_info(mdwc->dev, "[USB] %s %d\n", __func__, on);
+	mutex_lock(&mdwc->role_switch_mutex);
+	if (on){
+		btm_role = USB_ROLE_DEVICE;
+	} else {
+		btm_role = USB_ROLE_NONE;
+	}
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+	tusb212_set_usb_btm_role(btm_role);
+	if(current_path == HUB) {
+		dev_info(mdwc->dev, "[USB] %s HUB mode, ignore role switch.\n", __func__);
+		mutex_unlock(&mdwc->role_switch_mutex);
+		return;
+	}
+	if(side_connected == 1){
+		dev_info(mdwc->dev, "[USB] %s SIDE connected, ignore role switch.\n", __func__);
+		mutex_unlock(&mdwc->role_switch_mutex);
+		return;
+	}
+#endif
+	if (on) {
+		mdwc->vbus_active = true;
+		mdwc->id_state = DWC3_ID_FLOAT;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(BTM);
+#endif
+	} else {
+		mdwc->vbus_active = false;
+		mdwc->id_state = DWC3_ID_FLOAT;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(NONE);
+#endif
+		mutex_unlock(&mdwc->role_switch_mutex);
+		return;
+	}
+	mutex_unlock(&mdwc->role_switch_mutex);
+
+	dwc3_ext_event_notify(mdwc);
+}
 static inline const char *usb_role_string(enum usb_role role)
 {
 	if (role < ARRAY_SIZE(usb_role_strings))
@@ -4524,23 +4803,33 @@ static int dwc3_msm_set_role(struct dwc3_msm *mdwc, enum usb_role role)
 	dbg_log_string("cur_role:%s new_role:%s refcnt:%d\n", usb_role_string(cur_role),
 				usb_role_string(role), mdwc->refcnt_dp_usb);
 
-	/*
-	 * For boot up without USB cable connected case, don't check
-	 * previous role value to allow resetting USB controller and
-	 * PHYs.
-	 */
-	if (mdwc->drd_state != DRD_STATE_UNDEFINED && cur_role == role) {
-		dbg_log_string("no USB role change");
+	dev_info(mdwc->dev, "[USB] %s cur_role:%s new_role:%s\n", __func__, usb_role_string(cur_role),
+						usb_role_string(role));
+
+	side_role = role;
+	repeater_set_usb_role(side_role);
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+	if(current_path == HUB) {
+		dev_info(mdwc->dev, "[USB] %s HUB mode, ignore role switch.\n", __func__);
 		mutex_unlock(&mdwc->role_switch_mutex);
 		return 0;
 	}
-
+#endif
 	switch (role) {
 	case USB_ROLE_HOST:
 		mdwc->vbus_active = false;
 		mdwc->id_state = DWC3_ID_GROUND;
 		WARN_ON(mdwc->refcnt_dp_usb);
 		mdwc->refcnt_dp_usb++;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		if (cur_role == USB_ROLE_HOST && btm_role == USB_ROLE_HOST && !side_connected){
+			dev_info(mdwc->dev, "[USB] BTM HOST -> SIDE HOST, restart host\n", __func__);
+			dwc3_start_stop_host(mdwc, false);
+			dwc3_start_stop_host(mdwc, true);
+		}
+		usb_path_switch(SIDE);
+		side_connected = 1;
+#endif
 		break;
 
 	case USB_ROLE_DEVICE:
@@ -4548,6 +4837,10 @@ static int dwc3_msm_set_role(struct dwc3_msm *mdwc, enum usb_role role)
 		mdwc->id_state = DWC3_ID_FLOAT;
 		dbg_log_string("refcnt:%d reset refcnt_dp_usb\n", mdwc->refcnt_dp_usb);
 		mdwc->refcnt_dp_usb = 0;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		usb_path_switch(SIDE);
+		side_connected = 1;
+#endif
 		break;
 
 	case USB_ROLE_NONE:
@@ -4559,18 +4852,78 @@ static int dwc3_msm_set_role(struct dwc3_msm *mdwc, enum usb_role role)
 			return 0;
 		}
 
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		if(side_connected == 0 && mdwc->drd_state != DRD_STATE_UNDEFINED){
+			dev_info(mdwc->dev, "[USB] %s side_connected=0, ignore set none mode.\n", __func__);
+			mutex_unlock(&mdwc->role_switch_mutex);
+			return 0;
+		}
+#endif
 		mdwc->vbus_active = false;
 		mdwc->id_state = DWC3_ID_FLOAT;
 		mdwc->refcnt_dp_usb = 0;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		side_connected = 0;
+		restore_role_path();
+#endif
 		break;
 	}
 	dbg_log_string("new_role:%s refcnt:%d\n",
 		usb_role_string(role), mdwc->refcnt_dp_usb);
 	mutex_unlock(&mdwc->role_switch_mutex);
 
+	/*
+	 * For boot up without USB cable connected case, don't check
+	 * previous role value to allow resetting USB controller and
+	 * PHYs.
+	 */
+	if (mdwc->drd_state != DRD_STATE_UNDEFINED && cur_role == role
+		&& !(role == USB_ROLE_NONE && btm_role == USB_ROLE_HOST)) {
+		dev_info(mdwc->dev, "[USB] %s, no USB role change\n", __func__);
+		dbg_log_string("no USB role change");
+		if (btm_role == USB_ROLE_DEVICE && role == USB_ROLE_DEVICE) {
+			btm_role = USB_ROLE_NONE;
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+			tusb212_set_usb_btm_role(btm_role);
+#endif
+			schedule_work(&mdwc->restart_usb_work);
+		}
+		return 0;
+	}
+
 	dwc3_ext_event_notify(mdwc);
 	return 0;
 }
+
+static int cc_enable = 1;
+static ssize_t ccenable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+
+	if (!cc_enable)
+		return scnprintf(buf, PAGE_SIZE, "typec disable\n");
+	else
+		return scnprintf(buf, PAGE_SIZE, "typec enable\n");
+}
+
+static ssize_t ccenable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+
+	dev_info(mdwc->dev, "[USB] %s: %s\n", __func__, buf);
+
+	if (sysfs_streq(buf, "disconnect"))
+		cc_enable = 0;
+	else
+		cc_enable = 1;
+
+	ucsi_typec_mode_enable(cc_enable);
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(ccenable);
 
 static int dwc3_msm_usb_role_switch_set_role(struct usb_role_switch *sw, enum usb_role role)
 {
@@ -4696,6 +5049,7 @@ static ssize_t speed_store(struct device *dev, struct device_attribute *attr,
 	} else if (req_speed >= mdwc->max_hw_supp_speed) {
 		mdwc->override_usb_speed = 0;
 	}
+	dwc3_msm_set_max_speed(mdwc, req_speed);
 
 	return count;
 }
@@ -4756,8 +5110,114 @@ static ssize_t bus_vote_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(bus_vote);
 
+#ifdef ASUS_AI2201_PROJECT
+static ssize_t mux2_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	if (gpio_get_value(mux_gpio_ctrl->MUX2_OE)==1
+		&& gpio_get_value(mux_gpio_ctrl->MUX2_SEL)==1)
+		return sprintf(buf, "%s", "disable\n");
+	else if (gpio_get_value(mux_gpio_ctrl->MUX2_OE)==0
+		&& gpio_get_value(mux_gpio_ctrl->MUX2_SEL)==0)
+		return sprintf(buf, "%s", "1\n");
+	else if (gpio_get_value(mux_gpio_ctrl->MUX2_OE)==0
+		&& gpio_get_value(mux_gpio_ctrl->MUX2_SEL)==1)
+		return sprintf(buf, "%s", "2\n");
+	else
+		return sprintf(buf, "%s", "error\n");
+
+	return 0;
+}
+
+static ssize_t mux2_store(
+	struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+
+	dev_info(mdwc->dev, "[USB] %s: %s\n", __func__, buf);
+	if (!strncmp(buf, "0", 1)) {
+		mux2_switch(0);
+	} else if (!strncmp(buf, "1", 1)) {
+		mux2_switch(1);
+	} else if (!strncmp(buf, "2", 1)) {
+		mux2_switch(2);
+	}
+
+	return size;
+}
+static DEVICE_ATTR_RW(mux2);
+
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+static ssize_t usb_path_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	if (current_path==NONE)
+		return sprintf(buf, "%s", "NONE\n");
+	else if (current_path==SIDE)
+		return sprintf(buf, "%s", "SIDE\n");
+	else if (current_path==BTM)
+		return sprintf(buf, "%s", "BTM\n");
+	else if (current_path==HUB)
+		return sprintf(buf, "%s", "HUB\n");
+	else
+		return sprintf(buf, "%s", "error\n");
+
+	return 0;
+}
+
+static ssize_t usb_path_store(
+	struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+
+	dev_info(mdwc->dev, "[USB] %s: %s\n", __func__, buf);
+	if (!strncmp(buf, "NONE", 4)) {
+		usb_path_switch(NONE);
+	} else if (!strncmp(buf, "SIDE", 4)) {
+		usb_path_switch(SIDE);
+	} else if (!strncmp(buf, "BTM", 3)) {
+		usb_path_switch(BTM);
+	} else if (!strncmp(buf, "HUB", 3)) {
+		usb_path_switch(HUB);
+	}
+
+	return size;
+}
+static DEVICE_ATTR_RW(usb_path);
+
+static ssize_t Inbox_enable_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	if(current_path==HUB)
+		return sprintf(buf, "%s", "1\n");
+	else
+		return sprintf(buf, "%s", "0\n");
+}
+
+static ssize_t Inbox_enable_store(
+	struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+
+	dev_info(mdwc->dev, "[USB] %s: %s\n", __func__, buf);
+	if (!strncmp(buf, "1", 1)) {
+		Inbox_role_switch(1);
+	} else if (!strncmp(buf, "0", 1)) {
+		Inbox_role_switch(0);
+	}
+
+	return size;
+}
+static DEVICE_ATTR_RW(Inbox_enable);
+#endif
+#endif
+
 static struct attribute *dwc3_msm_attrs[] = {
 	&dev_attr_orientation.attr,
+	&dev_attr_ccenable.attr,
 	&dev_attr_mode.attr,
 	&dev_attr_speed.attr,
 	&dev_attr_bus_vote.attr,
@@ -4913,6 +5373,12 @@ int dwc3_msm_set_dp_mode(struct device *dev, bool dp_connected, int lanes)
 		return -EAGAIN;
 	}
 
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+		if(current_path==HUB){
+			dev_err(mdwc->dev, "[USB] %s, in HUB mode, skip!\n", __func__);
+			return 0;
+		}
+#endif
 	/* flush any pending work */
 	flush_work(&mdwc->resume_work);
 	flush_workqueue(mdwc->sm_usb_wq);
@@ -5201,6 +5667,17 @@ static int dwc3_msm_parse_core_params(struct dwc3_msm *mdwc, struct device_node 
 	return ret;
 }
 
+typedef void (*dwc3_role_switch_fn)(bool);
+
+void msm_dwc3_register_switch(dwc3_role_switch_fn *funcPtr){
+
+	if(funcPtr) {
+		pr_info("register switch for usb2 client haha\n");
+		*funcPtr = &battery_role_switch;
+	}
+}
+EXPORT_SYMBOL(msm_dwc3_register_switch);
+
 static int dwc3_msm_smmu_fault_handler(struct iommu_domain *domain, struct device *dev,
 					unsigned long iova, int flags, void *data)
 {
@@ -5229,6 +5706,11 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret = 0, size = 0, i;
 	u32 val;
+#ifdef ASUS_AI2201_PROJECT
+	u32 board_id[2] = { 0 };
+	u32 msm_id[2] = { 0 };
+	struct device_node *root;
+#endif
 
 	mdwc = devm_kzalloc(&pdev->dev, sizeof(*mdwc), GFP_KERNEL);
 	if (!mdwc)
@@ -5237,12 +5719,31 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, mdwc);
 	mdwc->dev = &pdev->dev;
 
+	dev_info(&pdev->dev, "[USB] dwc3_msm_probe, pdev->dev =%s\n", dev_name(&pdev->dev));
+	if (!strcmp("a600000.ssusb", dev_name(&pdev->dev))){
+		init_completion(&usb_host_complete1);
+	}
+
 	INIT_LIST_HEAD(&mdwc->req_complete_list);
 	INIT_WORK(&mdwc->resume_work, dwc3_resume_work);
 	INIT_WORK(&mdwc->restart_usb_work, dwc3_restart_usb_work);
 	INIT_DELAYED_WORK(&mdwc->sm_work, dwc3_otg_sm_work);
 	INIT_DELAYED_WORK(&mdwc->perf_vote_work, msm_dwc3_perf_vote_work);
 
+#ifdef ASUS_AI2201_PROJECT
+
+	root = of_find_node_by_path("/");
+	if (!of_property_read_u32_array(root, "qcom,board-id", board_id, 2)) {
+		hwid = board_id[0];
+		dev_info(&pdev->dev, "[USB] %s hwid=%d\n", __func__, hwid);
+	}
+
+	if (!of_property_read_u32_array(root, "qcom,msm-id", msm_id, 2)) {
+		socid = msm_id[0];
+		dev_info(&pdev->dev, "[USB] %s socid=%d\n", __func__, socid);
+	}
+	mux_init(mdwc);
+#endif
 	dwc3_msm_debug_init(mdwc);
 
 	mdwc->dwc3_wq = alloc_ordered_workqueue("dwc3_wq", 0);
@@ -5579,6 +6080,18 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dwc3_ext_event_notify(mdwc);
 	}
 
+	g_mdwc = mdwc;
+
+#ifdef ASUS_AI2201_PROJECT
+	device_create_file(&pdev->dev, &dev_attr_mux2);
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+	device_create_file(&pdev->dev, &dev_attr_usb_path);
+	device_create_file(&pdev->dev, &dev_attr_Inbox_enable);
+#endif
+#endif
+
+	dev_info(mdwc->dev, "[USB] %s: done\n", __func__);
+
 	return 0;
 
 put_dwc3:
@@ -5677,12 +6190,86 @@ static int dwc3_msm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef ASUS_AI2201_PROJECT
+static void check_asus_device(struct usb_device *udev, unsigned long event){
+	if(event == USB_DEVICE_ADD){
+		dev_info(&udev->dev, "[USB] %s, USB_DEVICE_ADD bus number: %d, device number: %d\n", __func__, udev->bus->busnum, udev->devnum);
+		if (IS_ERR_OR_NULL(udev->product)){
+			dev_err(&udev->dev, "[USB] udev->product is null\n");
+			return;
+		}
+		if (udev->bus->busnum==ProDock_hub1_bus){
+			if (le16_to_cpu(udev->descriptor.idVendor)==0x0BDA && le16_to_cpu(udev->descriptor.idProduct)==0x8153){
+				dev_info(&udev->dev, "[USB] ProDock eth 8153 detected\n");
+			} else {
+				ProDock_state=2;
+				ProDock_extra_device_count+=1;
+				dev_info(&udev->dev, "[USB] ProDock extra device detected\n");
+			}
+		} else if (udev->bus->busnum==ProDock_hub2_bus){
+			if (le16_to_cpu(udev->descriptor.idVendor)==0x0BDA && le16_to_cpu(udev->descriptor.idProduct)==0x8153){
+				dev_info(&udev->dev, "[USB] ProDock eth 8153 detected\n");
+			} else {
+				ProDock_state=2;
+				ProDock_extra_device_count+=1;
+				dev_info(&udev->dev, "[USB] ProDock extra device detected\n");
+			}
+		}
+		if (le16_to_cpu(udev->descriptor.idVendor)==0x2109 && le16_to_cpu(udev->descriptor.idProduct)==0x2817 && strcmp(udev->product,"ASUS Pro-Dock USB2.0")==0) {
+			ProDock_hub1_bus=udev->bus->busnum;
+			ProDock_hub1_dev=udev->devnum;
+			ProDock_state=1;
+			sprintf(ProDock_fw_ver, "%04x", le16_to_cpu(udev->descriptor.bcdDevice));
+			dev_info(&udev->dev, "[USB] ASUS Pro-Dock HUB2.0 detected, ProDock_fw_ver=%s\n", ProDock_fw_ver);
+		} else if (le16_to_cpu(udev->descriptor.idVendor)==0x2109 && le16_to_cpu(udev->descriptor.idProduct)==0x0817 && strcmp(udev->product,"ASUS Pro-Dock USB3.0")==0) {
+			ProDock_hub2_bus=udev->bus->busnum;
+			ProDock_hub2_dev=udev->devnum;
+			dev_info(&udev->dev, "[USB] ASUS Pro-Dock HUB3.0 detected\n");
+		}
+		dev_info(&udev->dev, "[USB] ProDock_state=%d, extra_device_count=%d\n", ProDock_state, ProDock_extra_device_count);
+	} else if (event == USB_DEVICE_REMOVE){
+		dev_info(&udev->dev, "[USB] %s, USB_DEVICE_REMOVE bus number: %d, device number: %d\n", __func__, udev->bus->busnum, udev->devnum);
+
+		if (udev->bus->busnum==ProDock_hub1_bus) {
+			if (udev->devnum==ProDock_hub1_dev) {
+				ProDock_hub1_bus=0;
+				ProDock_hub1_dev=0;
+				ProDock_state=0;
+				memset(ProDock_fw_ver, 0, sizeof(ProDock_fw_ver));
+				dev_info(&udev->dev, "[USB] ProDock hub1 disconnect\n");
+			} else {
+				if (ProDock_extra_device_count>0) {
+					ProDock_extra_device_count-=1;
+				}
+				dev_info(&udev->dev, "[USB] device on ProDock disconnect\n");
+			}
+		} else if (udev->bus->busnum==ProDock_hub2_bus){
+			if (udev->devnum==ProDock_hub2_dev) {
+				ProDock_hub2_bus=0;
+				ProDock_hub2_dev=0;
+				dev_info(&udev->dev, "[USB] ProDock hub2 disconnect\n");
+			} else {
+				if (ProDock_extra_device_count>0) {
+					ProDock_extra_device_count-=1;
+				}
+				dev_info(&udev->dev, "[USB] device on ProDock disconnect\n");
+			}
+		}
+		if (ProDock_state==0) {
+			ProDock_extra_device_count=0;
+		} else if (ProDock_state>0 && ProDock_extra_device_count==0) {
+			ProDock_state=1;
+		}
+		dev_info(&udev->dev, "[USB] ProDock_state=%d, extra_device_count=%d\n", ProDock_state, ProDock_extra_device_count);
+	}
+}
+#endif
+
 static int dwc3_msm_host_ss_powerdown(struct dwc3_msm *mdwc)
 {
 	u32 reg;
 
-	if (mdwc->disable_host_ssphy_powerdown ||
-		dwc3_msm_get_max_speed(mdwc) < USB_SPEED_SUPER)
+	if (mdwc->disable_host_ssphy_powerdown)
 		return 0;
 
 	reg = dwc3_msm_read_reg(mdwc->base, EXTRA_INP_REG);
@@ -5702,8 +6289,7 @@ static int dwc3_msm_host_ss_powerup(struct dwc3_msm *mdwc)
 	u32 reg;
 
 	dbg_log_string("start: speed:%d\n", dwc3_msm_get_max_speed(mdwc));
-	if (!mdwc->in_host_mode || mdwc->disable_host_ssphy_powerdown ||
-		dwc3_msm_get_max_speed(mdwc) < USB_SPEED_SUPER)
+	if (!mdwc->in_host_mode || mdwc->disable_host_ssphy_powerdown)
 		return 0;
 
 	usb_phy_set_suspend(mdwc->ss_phy, 0);
@@ -5742,6 +6328,12 @@ static int dwc3_msm_host_notifier(struct notifier_block *nb,
 	 * i.e. dwc -> xhci -> root_hub -> udev
 	 * root_hub's udev->parent==NULL, so traverse struct device hierarchy
 	 */
+#ifdef ASUS_AI2201_PROJECT
+	if (udev->parent){
+		/* all USB devices */
+		check_asus_device(udev, event);
+	}
+#endif
 	if (udev->parent && !udev->parent->parent &&
 			udev->dev.parent->parent == &dwc->xhci->dev) {
 		if (event == USB_DEVICE_ADD) {
@@ -5757,9 +6349,10 @@ static int dwc3_msm_host_notifier(struct notifier_block *nb,
 					mdwc->core_clk_rate_hs);
 				mdwc->max_rh_port_speed = USB_SPEED_HIGH;
 				dwc3_msm_update_bus_bw(mdwc, BUS_VOTE_SVS);
-				dwc3_msm_host_ss_powerdown(mdwc);
+				if (dwc3_msm_get_max_speed(mdwc) >= USB_SPEED_SUPER)
+					dwc3_msm_host_ss_powerdown(mdwc);
 			} else {
-				if (mdwc->max_rh_port_speed < USB_SPEED_SUPER)
+				if (mdwc->max_rh_port_speed < USB_SPEED_SUPER && dwc3_msm_get_max_speed(mdwc) >= USB_SPEED_SUPER)
 					dwc3_msm_host_ss_powerup(mdwc);
 				mdwc->max_rh_port_speed = USB_SPEED_SUPER;
 			}
@@ -5770,8 +6363,8 @@ static int dwc3_msm_host_notifier(struct notifier_block *nb,
 				mdwc->core_clk_rate);
 			mdwc->max_rh_port_speed = USB_SPEED_UNKNOWN;
 			dwc3_msm_update_bus_bw(mdwc, mdwc->default_bus_vote);
-			dwc3_msm_host_ss_powerup(mdwc);
-
+			if (dwc3_msm_get_max_speed(mdwc) >= USB_SPEED_SUPER)
+				dwc3_msm_host_ss_powerup(mdwc);
 			if (udev->parent->speed >= USB_SPEED_SUPER)
 				usb_redriver_host_powercycle(mdwc->redriver);
 		}
@@ -5848,6 +6441,12 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 		usb_redriver_notify_connect(mdwc->redriver,
 				mdwc->ss_phy->flags & PHY_LANE_A ?
 					ORIENTATION_CC1 : ORIENTATION_CC2);
+
+		if (dwc3_msm_get_max_speed(mdwc) >= USB_SPEED_SUPER)
+			dwc3_msm_host_ss_powerup(mdwc);
+		else
+			dwc3_msm_host_ss_powerdown(mdwc);
+
 		if (dwc->maximum_speed >= USB_SPEED_SUPER) {
 			mdwc->ss_phy->flags |= PHY_HOST_MODE;
 			usb_phy_notify_connect(mdwc->ss_phy,
@@ -5924,9 +6523,16 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 		msm_dwc3_perf_vote_update(mdwc, true);
 		schedule_delayed_work(&mdwc->perf_vote_work,
 				msecs_to_jiffies(1000 * PM_QOS_SAMPLE_SEC));
+		if (!strcmp("a600000.ssusb", dev_name(mdwc->dev))) {
+			complete_all(&usb_host_complete1);
+			dev_info(mdwc->dev, "[USB] %s: %s complete \n", __func__, dev_name(mdwc->dev));
+		}
 	} else {
 		dev_dbg(mdwc->dev, "%s: turn off host\n", __func__);
 
+		if (!strcmp("a600000.ssusb", dev_name(mdwc->dev))) {
+			reinit_completion(&usb_host_complete1);
+		}
 		cancel_delayed_work_sync(&mdwc->perf_vote_work);
 		msm_dwc3_perf_vote_update(mdwc, false);
 		cpu_latency_qos_remove_request(&mdwc->pm_qos_req_dma);
@@ -5944,7 +6550,8 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 		mdwc->in_host_mode = false;
 
 		if (!mdwc->ss_release_called) {
-			dwc3_msm_host_ss_powerup(mdwc);
+			if (dwc3_msm_get_max_speed(mdwc) >= USB_SPEED_SUPER)
+				dwc3_msm_host_ss_powerup(mdwc);
 			dwc3_msm_clear_dp_only_params(mdwc);
 		}
 
@@ -6518,6 +7125,208 @@ static int dwc3_msm_runtime_resume(struct device *dev)
 
 	return dwc3_msm_resume(mdwc);
 }
+#endif
+
+#ifdef ASUS_AI2201_PROJECT
+static int mux_init(struct dwc3_msm *mdwc)
+{
+	int ret = 0;
+
+	pr_info("[USB_mux] %s\n", __func__);
+
+	mux_gpio_ctrl = devm_kzalloc(mdwc->dev, sizeof(*mux_gpio_ctrl), GFP_KERNEL);
+	if (!mux_gpio_ctrl) {
+		pr_err("[USB_mux] mux_gpio_ctrl error\n");
+		return -ENOMEM;
+	}
+	if (hwid >= AI2201_PreSR){
+		mux_gpio_ctrl->MUX1_OE = of_get_named_gpio(mdwc->dev->of_node, "MUX1_OE", 0);
+		ret = gpio_request(mux_gpio_ctrl->MUX1_OE, "MUX1_OE");
+		if (ret)
+			pr_err("[USB_mux] failed to request MUX1_OE\n");
+	}
+	mux_gpio_ctrl->MUX2_OE = of_get_named_gpio(mdwc->dev->of_node, "MUX2_OE", 0);
+	ret = gpio_request(mux_gpio_ctrl->MUX2_OE, "MUX2_OE");
+	if (ret)
+		pr_err("[USB_mux] failed to request MUX2_OE\n");
+	mux_gpio_ctrl->MUX2_SEL = of_get_named_gpio(mdwc->dev->of_node, "MUX2_SEL", 0);
+	ret = gpio_request(mux_gpio_ctrl->MUX2_SEL, "MUX2_SEL");
+	if (ret)
+		pr_err("[USB_mux], failed to request MUX2_SEL\n");
+
+	return 0;
+}
+
+static void mux2_switch(int val){
+	int ret = 0;
+
+	pr_info("[USB_mux] %s val=%d, socid=%d, hwid=%d\n", __func__, val, socid, hwid);
+	if(val==0) {//mux2 disable
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_OE, 1);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_OE\n");
+		}
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_SEL, 1);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_SEL\n");
+		}
+	} else if(val==1) {//mux2 enable, sel path 1
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_OE, 0);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_OE\n");
+		}
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_SEL, 0);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_SEL\n");
+		}
+	} else if(val==2) {//mux2 enable, sel path 2
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_OE, 0);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_OE\n");
+		}
+		ret = gpio_direction_output(mux_gpio_ctrl->MUX2_SEL, 1);
+		if (ret) {
+			pr_err("[USB_mux] failed to control MUX2_SEL\n");
+		}
+	} else {
+		pr_err("[USB_mux] wrong val=%d\n", val);
+	}
+
+	return;
+}
+
+#ifdef CONFIG_USB_HUB_USB3803_MODULE
+void usb_path_switch(int val){
+	int ret = 0;
+
+	pr_info("[USB] %s val=%d, socid=%d, hwid=%d\n", __func__, val, socid, hwid);
+	if (socid == AI2201_8450 && hwid == AI2201_EVB){
+		if(val==NONE) {//NONE
+			mux2_switch(0);
+			usb3803_set_mode(0);
+		} else if(val==SIDE) {//SIDE bypass (hub bypass mode)
+			mux2_switch(0);
+			usb3803_set_mode(1);
+		} else if(val==BTM) {//BTM bypass (no cross hub)
+			mux2_switch(1);
+			usb3803_set_mode(0);
+		} else if(val==HUB) {//HUB mode
+			mux2_switch(2);
+			usb3803_set_mode(2);
+		} else {
+			pr_err("[USB] %s wrong val=%d\n", __func__, val);
+		}
+	} else if (socid == AI2201_8450 && hwid >= AI2201_PreSR && hwid < AI2201_ER1){
+		if(val==NONE) {//NONE
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(0);
+		} else if(val==SIDE) {//SIDE bypass (no cross hub)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 1);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(1);
+			usb3803_set_mode(0);
+		} else if(val==BTM) {//BTM bypass (hub bypass mode)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(1);
+		} else if(val==HUB) {//HUB mode
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(2);
+			usb3803_set_mode(2);
+		} else {
+			pr_err("[USB] %s wrong val=%d\n", __func__, val);
+		}
+	} else if (socid == AI2201_8450 && hwid >= AI2201_ER1 && hwid < AI2201_PR){//ER1 enable redriver tusb216
+		if(val==NONE) {//NONE
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(0);
+			tusb212_enable(0);
+		} else if(val==SIDE) {//SIDE bypass (no cross hub)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 1);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(1);
+			usb3803_set_mode(0);
+			tusb212_enable(0);
+		} else if(val==BTM) {//BTM bypass (hub bypass mode)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(1);
+			tusb212_enable(1);
+		} else if(val==HUB) {//HUB mode
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(2);
+			usb3803_set_mode(2);
+			tusb212_enable(1);
+		} else {
+			pr_err("[USB] %s wrong val=%d\n", __func__, val);
+		}
+	} else if ((socid == AI2201_8450 && hwid >= AI2201_PR) || socid == AI2201_8475){//PR MUX1_OE reverse
+		if(val==NONE) {//NONE
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 1);//reverse
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(0);
+			tusb212_enable(0);
+		} else if(val==SIDE) {//SIDE bypass (no cross hub)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 0);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(1);
+			usb3803_set_mode(0);
+			tusb212_enable(0);
+		} else if(val==BTM) {//BTM bypass (hub bypass mode)
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 1);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(0);
+			usb3803_set_mode(1);
+			tusb212_enable(1);
+		} else if(val==HUB) {//HUB mode
+			ret = gpio_direction_output(mux_gpio_ctrl->MUX1_OE, 1);
+			if (ret) {
+				pr_err("[USB_mux] failed to control MUX1_OE\n");
+			}
+			mux2_switch(2);
+			usb3803_set_mode(2);
+			tusb212_enable(1);
+		} else {
+			pr_err("[USB] %s wrong val=%d\n", __func__, val);
+		}
+	}
+
+	current_path=val;
+	return;
+}
+EXPORT_SYMBOL(usb_path_switch);
+#endif
 #endif
 
 static const struct dev_pm_ops dwc3_msm_dev_pm_ops = {

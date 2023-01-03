@@ -1,0 +1,7 @@
+#menu "aw haptic driver support"
+
+config AW_HAPTIC
+	tristate "aw haptic driver support"
+	default n
+
+#endmenu

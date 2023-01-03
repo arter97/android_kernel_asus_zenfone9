@@ -57,7 +57,6 @@
 #define _FT7250             0x7250081A
 #define _FT7120             0x7120081B
 #define _FT8720             0x8720081C
-#define _FT8726             0x8726081C
 #define _FT8016             0x8016081D
 
 
@@ -168,7 +167,7 @@
  * show debug log info
  * enable it for debug, disable it for release
  */
-#define FTS_DEBUG_EN                            0
+#define FTS_DEBUG_EN                            1
 
 /*
  * Linux MultiTouch Protocol
@@ -180,13 +179,13 @@
  * Report Pressure in multitouch
  * 1:enable(default),0:disable
 */
-#define FTS_REPORT_PRESSURE_EN                  1
+#define FTS_REPORT_PRESSURE_EN                  0
 
 /*
  * Gesture function enable
  * default: disable
  */
-#define FTS_GESTURE_EN                          0
+#define FTS_GESTURE_EN                          1
 
 /*
  * ESD check & protection
@@ -198,13 +197,13 @@
  * Production test enable
  * 1: enable, 0:disable(default)
  */
-#define FTS_TEST_EN                             0
+#define FTS_TEST_EN                             1
 
 /*
  * Pinctrl enable
  * default: disable
  */
-#define FTS_PINCTRL_EN                          1
+#define FTS_PINCTRL_EN                          0
 
 /*
  * Customer power enable
@@ -229,7 +228,7 @@
 /*
  * Numbers of modules support
  */
-#define FTS_GET_MODULE_NUM                      2
+#define FTS_GET_MODULE_NUM                      0
 
 /*
  * module_id: mean vendor_id generally, also maybe gpio or lcm_id...
@@ -239,7 +238,7 @@
  * FTS_GET_MODULE_NUM >= 3, compatible with FTS_MODULE3_ID
  */
 #define FTS_MODULE_ID                          0x0000
-#define FTS_MODULE2_ID                         0xd566
+#define FTS_MODULE2_ID                         0x0000
 #define FTS_MODULE3_ID                         0x0000
 
 /*
@@ -250,8 +249,8 @@
  * You should rename fw to "focaltech_ts_fw_tianma", and push it into
  * etc/firmware or by customers
  */
-#define FTS_MODULE_NAME                        "gvo"
-#define FTS_MODULE2_NAME                       "jdi"
+#define FTS_MODULE_NAME                        ""
+#define FTS_MODULE2_NAME                       ""
 #define FTS_MODULE3_NAME                       ""
 
 /*
@@ -259,7 +258,7 @@
  * define your own fw_file, the sample one to be replaced is invalid
  * NOTE: if FTS_GET_MODULE_NUM > 1, it's the fw corresponding with FTS_VENDOR_ID
  */
-#define FTS_UPGRADE_FW_FILE                    "include/firmware/fw_sample.i"
+#define FTS_UPGRADE_FW_FILE                      "include/firmware/ASUS_ROG5_V31_D01_20210601_app.i"
 
 /*
  * if FTS_GET_MODULE_NUM >= 2, fw corrsponding with FTS_VENDOR_ID2

@@ -179,7 +179,7 @@ static inline void suspend_enable_secondary_cpus(void) { }
 
 void cpu_startup_entry(enum cpuhp_state state);
 
-void cpu_idle_poll_ctrl(bool enable);
+extern void cpu_idle_poll_ctrl(bool enable);
 
 /* Attach to any functions which should be considered cpuidle. */
 #define __cpuidle	__section(".cpuidle.text")

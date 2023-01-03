@@ -896,7 +896,10 @@
 #define SW_MUTE_DEVICE		0x0e  /* set = device disabled */
 #define SW_PEN_INSERTED		0x0f  /* set = pen inserted */
 #define SW_MACHINE_COVER	0x10  /* set = cover closed */
-#define SW_MAX			0x10
+#define SW_HALL2        	0x11
+#define SW_HALL3        	0x12
+#define SW_HALL4        	0x13
+#define SW_MAX			0x13
 #define SW_CNT			(SW_MAX+1)
 
 /*

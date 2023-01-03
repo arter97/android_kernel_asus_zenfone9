@@ -1,0 +1,7 @@
+#menu "TI MSP430 driver support"
+
+config TI_MSP430
+	tristate "TI MSP430 driver support"
+	default n
+
+#endmenu

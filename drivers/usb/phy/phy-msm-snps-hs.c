@@ -711,6 +711,9 @@ static int msm_hsphy_set_power(struct usb_phy *uphy, unsigned int mA)
 {
 	struct msm_hsphy *phy = container_of(uphy, struct msm_hsphy, phy);
 
+	if (phy->vbus_draw == mA)
+		return 0;
+
 	if (phy->cable_connected && (mA == 0))
 		return 0;
 

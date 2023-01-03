@@ -31,3 +31,6 @@ obj-$(CONFIG_USB_CHAOSKEY)		+= chaoskey.o
 
 obj-$(CONFIG_USB_SISUSBVGA)		+= sisusbvga/
 obj-$(CONFIG_USB_LINK_LAYER_TEST)	+= lvstest.o
+
+obj-$(CONFIG_USB_HUB_USB3803)		+= usb3803.o
+obj-$(CONFIG_USB_REDRIVER_TUSB212)	+= tusb212.o

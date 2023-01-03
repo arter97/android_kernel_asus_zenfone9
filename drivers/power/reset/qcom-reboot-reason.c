@@ -16,6 +16,7 @@
 
 struct qcom_reboot_reason {
 	struct device *dev;
+	struct notifier_block panic_nb;
 	struct notifier_block reboot_nb;
 	struct nvmem_cell *nvmem_cell;
 };
@@ -32,8 +33,19 @@ static struct poweroff_reason reasons[] = {
 	{ "dm-verity device corrupted",	0x04 },
 	{ "dm-verity enforcing",	0x05 },
 	{ "keys clear",			0x06 },
+	{ "oem-78",			0x0b },
+#if defined ASUS_AI2201_PROJECT || ASUS_AI2202_PROJECT
+	{ "shutdown", 		0x08 },
+	{ "EnterShippingMode", 		0x09 },
+	{ "oem-08",			0x0a },
+	{ "official-unlock",		0x0a },
+	{ "kernel_panic",		0x11 },
+	{ "asus_force_reboot",		0x12 },
+#endif
 	{}
 };
+
+static struct poweroff_reason reason_kernel_panic = {"kernel_panic", 0x11};
 
 static int qcom_reboot_reason_reboot(struct notifier_block *this,
 				     unsigned long event, void *ptr)
@@ -57,6 +69,23 @@ static int qcom_reboot_reason_reboot(struct notifier_block *this,
 	return NOTIFY_OK;
 }
 
+// ASUS BSP +++
+static int qcom_reboot_reason_panic(struct notifier_block *this, unsigned long event,
+			      void *ptr)
+{
+	struct qcom_reboot_reason *reboot = container_of(this, struct qcom_reboot_reason,
+						     panic_nb);
+	struct poweroff_reason *reason;
+
+	reason = &reason_kernel_panic;
+	nvmem_cell_write(reboot->nvmem_cell,
+			 &reason->pon_reason,
+			 sizeof(reason->pon_reason));
+
+	return NOTIFY_OK;
+}
+// ASUS BSP ---
+
 static int qcom_reboot_reason_probe(struct platform_device *pdev)
 {
 	struct qcom_reboot_reason *reboot;
@@ -72,6 +101,11 @@ static int qcom_reboot_reason_probe(struct platform_device *pdev)
 	if (IS_ERR(reboot->nvmem_cell))
 		return PTR_ERR(reboot->nvmem_cell);
 
+	reboot->panic_nb.notifier_call = qcom_reboot_reason_panic;
+	reboot->panic_nb.priority = INT_MAX;
+	atomic_notifier_chain_register(&panic_notifier_list,
+				       &reboot->panic_nb);
+
 	reboot->reboot_nb.notifier_call = qcom_reboot_reason_reboot;
 	reboot->reboot_nb.priority = 255;
 	register_reboot_notifier(&reboot->reboot_nb);
@@ -85,6 +119,8 @@ static int qcom_reboot_reason_remove(struct platform_device *pdev)
 {
 	struct qcom_reboot_reason *reboot = platform_get_drvdata(pdev);
 
+	atomic_notifier_chain_unregister(&panic_notifier_list,
+					 &reboot->panic_nb);
 	unregister_reboot_notifier(&reboot->reboot_nb);
 
 	return 0;

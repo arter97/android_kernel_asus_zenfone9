@@ -18,6 +18,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/types.h>
 #include <linux/usb/repeater.h>
+#include <linux/usb/role.h>
 
 #define EUSB2_3P0_VOL_MIN			3075000 /* uV */
 #define EUSB2_3P0_VOL_MAX			3300000 /* uV */
@@ -67,6 +68,13 @@
 #define INT_STATUS_1			0xA3
 #define INT_STATUS_2			0xA4
 
+enum usb_role usb_current_role;
+
+void repeater_set_usb_role(enum usb_role role)
+{
+	usb_current_role = role;
+}EXPORT_SYMBOL_GPL(repeater_set_usb_role);
+
 enum eusb2_repeater_type {
 	TI_REPEATER,
 	NXP_REPEATER,
@@ -89,6 +97,19 @@ struct eusb2_repeater {
 	struct gpio_desc		*reset_gpiod;
 	u32				*param_override_seq;
 	u8				param_override_seq_cnt;
+	u8 reg_addr;
+
+	u8 override_RESET_CONTROL;//0x01
+	u8 override_LINK_CONTROL1;//0x02
+	u8 override_LINK_CONTROL2;//0x03
+	u8 override_eUSB2_RX_CONTROL;//0x04
+	u8 override_eUSB2_TX_CONTROL;//0x05
+	u8 override_USB2_RX_CONTROL;//0x06
+	u8 override_USB2_TX_CONTROL1;//0x07
+	u8 override_USB2_TX_CONTROL2;//0x08
+	u8 override_USB2_HS_TERMINATION;//0x09
+	u8 override_RAP_SIGNATURE;//0x0D
+	u8 override_VDX_CONTROL;//0x0E
 };
 
 static const struct regmap_config eusb2_i2c_regmap = {
@@ -104,12 +125,12 @@ static int eusb2_i2c_read_reg(struct eusb2_repeater *er, u8 reg, u8 *val)
 
 	ret = regmap_read(er->regmap, reg, &reg_val);
 	if (ret < 0) {
-		dev_err(er->dev, "Failed to read reg:0x%02x ret=%d\n", reg, ret);
+		dev_err(er->dev, "[eusb2_repeater] Failed to read reg:0x%02x ret=%d\n", reg, ret);
 		return ret;
 	}
 
 	*val = reg_val;
-	dev_dbg(er->dev, "read reg:0x%02x val:0x%02x\n", reg, *val);
+	dev_info(er->dev, "[eusb2_repeater] read reg:0x%02x val:0x%02x\n", reg, *val);
 
 	return 0;
 }
@@ -120,22 +141,90 @@ static int eusb2_i2c_write_reg(struct eusb2_repeater *er, u8 reg, u8 val)
 
 	ret = regmap_write(er->regmap, reg, val);
 	if (ret < 0) {
-		dev_err(er->dev, "failed to write 0x%02x to reg: 0x%02x ret=%d\n", val, reg, ret);
+		dev_err(er->dev, "[eusb2_repeater] failed to write 0x%02x to reg: 0x%02x ret=%d\n", val, reg, ret);
 		return ret;
 	}
 
-	dev_dbg(er->dev, "write reg:0x%02x val:0x%02x\n", reg, val);
+	dev_info(er->dev, "[eusb2_repeater] write reg:0x%02x val:0x%02x\n", reg, val);
 
 	return 0;
 }
+
+static ssize_t addr_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct eusb2_repeater *er = dev_get_drvdata(dev);
+
+	return sprintf(buf, "0x%02x\n", er->reg_addr);
+}
+static ssize_t addr_store(
+	struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct eusb2_repeater *er = dev_get_drvdata(dev);
+
+	sscanf(buf, "%x", &er->reg_addr);
+
+	return size;
+}
+static DEVICE_ATTR_RW(addr);
+
+static ssize_t data_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct eusb2_repeater *er = dev_get_drvdata(dev);
+	u8 reg_val;
+
+	eusb2_i2c_read_reg(er, er->reg_addr, &reg_val);
+
+	return sprintf(buf, "0x%02x\n", reg_val);
+}
+static ssize_t data_store(
+	struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct eusb2_repeater *er = dev_get_drvdata(dev);
+	u8 reg_val;
+
+	sscanf(buf, "%x", &reg_val);
+	eusb2_i2c_write_reg(er, er->reg_addr, reg_val);
+
+	if (er->reg_addr == RESET_CONTROL)//0x01
+		er->override_RESET_CONTROL = reg_val;
+	if (er->reg_addr == LINK_CONTROL1)//0x02
+		er->override_LINK_CONTROL1 = reg_val;
+	if (er->reg_addr == LINK_CONTROL2)//0x03
+		er->override_LINK_CONTROL2 = reg_val;
+	if (er->reg_addr == eUSB2_RX_CONTROL)//0x04
+		er->override_eUSB2_RX_CONTROL = reg_val;
+	if (er->reg_addr == eUSB2_TX_CONTROL)//0x05
+		er->override_eUSB2_TX_CONTROL = reg_val;
+	if (er->reg_addr == USB2_RX_CONTROL)//0x06
+		er->override_USB2_RX_CONTROL = reg_val;
+	if (er->reg_addr == USB2_TX_CONTROL1)//0x07
+		er->override_USB2_TX_CONTROL1 = reg_val;
+	if (er->reg_addr == USB2_TX_CONTROL2)//0x08
+		er->override_USB2_TX_CONTROL2 = reg_val;
+	if (er->reg_addr == USB2_HS_TERMINATION)//0x09
+		er->override_USB2_HS_TERMINATION = reg_val;
+	if (er->reg_addr == RAP_SIGNATURE)//0x0D
+		er->override_RAP_SIGNATURE = reg_val;
+	if (er->reg_addr == VDX_CONTROL)//0x0E
+		er->override_VDX_CONTROL = reg_val;
+
+	dev_info(er->dev, "[eusb2_repeater] data_store addr:0x%02x data:0x%02x\n", er->reg_addr, reg_val);
+
+	return size;
+}
+static DEVICE_ATTR_RW(data);
 
 static void eusb2_repeater_update_seq(struct eusb2_repeater *er, u32 *seq, u8 cnt)
 {
 	int i;
 
-	dev_dbg(er->ur.dev, "param override seq count:%d\n", cnt);
+	dev_info(er->ur.dev, "[eusb2_repeater] param override seq count:%d\n", cnt);
 	for (i = 0; i < cnt; i = i+2) {
-		dev_dbg(er->ur.dev, "write 0x%02x to 0x%02x\n", seq[i], seq[i+1]);
+		dev_info(er->ur.dev, "[eusb2_repeater] write 0x%02x to 0x%02x\n", seq[i], seq[i+1]);
 		eusb2_i2c_write_reg(er, seq[i+1], seq[i]);
 	}
 }
@@ -269,7 +358,37 @@ static int eusb2_repeater_init(struct usb_repeater *ur)
 		eusb2_repeater_update_seq(er, er->param_override_seq,
 					er->param_override_seq_cnt);
 
-	dev_info(er->ur.dev, "eUSB2 repeater init\n");
+	if (usb_current_role == USB_ROLE_HOST) {
+		dev_info(er->ur.dev, "[eusb2_repeater] hardcode override host params\n", __func__);
+		eusb2_i2c_write_reg(er, USB2_TX_CONTROL1, 0x02); //0x07
+		eusb2_i2c_write_reg(er, USB2_TX_CONTROL2, 0x62); //0x08
+	}
+
+	dev_info(er->ur.dev, "[eusb2_repeater] dynamic override params\n", __func__);
+	if (er->override_RESET_CONTROL)//0x01
+		eusb2_i2c_write_reg(er, RESET_CONTROL, er->override_RESET_CONTROL);
+	if (er->override_LINK_CONTROL1)//0x02
+		eusb2_i2c_write_reg(er, LINK_CONTROL1, er->override_LINK_CONTROL1);
+	if (er->override_LINK_CONTROL2)//0x03
+		eusb2_i2c_write_reg(er, LINK_CONTROL2, er->override_LINK_CONTROL2);
+	if (er->override_eUSB2_RX_CONTROL)//0x04
+		eusb2_i2c_write_reg(er, eUSB2_RX_CONTROL, er->override_eUSB2_RX_CONTROL);
+	if (er->override_eUSB2_TX_CONTROL)//0x05
+		eusb2_i2c_write_reg(er, eUSB2_TX_CONTROL, er->override_eUSB2_TX_CONTROL);
+	if (er->override_USB2_RX_CONTROL)//0x06
+		eusb2_i2c_write_reg(er, USB2_RX_CONTROL, er->override_USB2_RX_CONTROL);
+	if (er->override_USB2_TX_CONTROL1)//0x07
+		eusb2_i2c_write_reg(er, USB2_TX_CONTROL1, er->override_USB2_TX_CONTROL1);
+	if (er->override_USB2_TX_CONTROL2)//0x08
+		eusb2_i2c_write_reg(er, USB2_TX_CONTROL2, er->override_USB2_TX_CONTROL2);
+	if (er->override_USB2_HS_TERMINATION)//0x09
+		eusb2_i2c_write_reg(er, USB2_HS_TERMINATION, er->override_USB2_HS_TERMINATION);
+	if (er->override_RAP_SIGNATURE)//0x0D
+		eusb2_i2c_write_reg(er, RAP_SIGNATURE, er->override_RAP_SIGNATURE);
+	if (er->override_VDX_CONTROL)//0x0E
+		eusb2_i2c_write_reg(er, VDX_CONTROL, er->override_VDX_CONTROL);
+
+	dev_info(er->ur.dev, "[eusb2_repeater] init done\n");
 
 	return 0;
 }
@@ -279,7 +398,7 @@ static int eusb2_repeater_reset(struct usb_repeater *ur, bool bring_out_of_reset
 	struct eusb2_repeater *er =
 			container_of(ur, struct eusb2_repeater, ur);
 
-	dev_dbg(ur->dev, "reset gpio:%s\n",
+	dev_info(ur->dev, "[eusb2_repeater] reset gpio:%s\n",
 			bring_out_of_reset ? "assert" : "deassert");
 	gpiod_set_value_cansleep(er->reset_gpiod, bring_out_of_reset);
 	return 0;
@@ -417,7 +536,11 @@ static int eusb2_repeater_i2c_probe(struct i2c_client *client)
 	if (ret)
 		goto err_probe;
 
-	return 0;
+	ret = device_create_file(&client->dev, &dev_attr_addr);
+	ret = device_create_file(&client->dev, &dev_attr_data);
+
+	dev_info(dev, "[eusb2_repeater] probe done\n");
+	return ret;
 
 err_probe:
 	return ret;

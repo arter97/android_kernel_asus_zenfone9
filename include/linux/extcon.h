@@ -69,6 +69,17 @@
 #define EXTCON_JACK_SPDIF_IN	26	/* Sony Philips Digital InterFace */
 #define EXTCON_JACK_SPDIF_OUT	27
 
+/* ASUS internal use */
+#define EXTCON_ASUS_INTERNAL_CAP_STATUS		30
+#define EXTCON_ASUS_INTERNAL_CAP2_STATUS	31
+#define EXTCON_ASUS_INTERNAL_BATTERY		32
+#define EXTCON_ASUS_INTERNAL_BATTERY_ID		33
+#define EXTCON_ASUS_INTERNAL_QUICK_CHARGING	34
+#define EXTCON_ASUS_INTERNAL_USB_CONNECTOR	35
+#define EXTCON_ASUS_INTERNAL_INVALID_DONGLE	36
+#define EXTCON_ASUS_INTERNAL_DOCK			37
+
+
 /* Display external connector */
 #define EXTCON_DISP_HDMI	40	/* High-Definition Multimedia Interface */
 #define EXTCON_DISP_MHL		41	/* Mobile High-Definition Link */

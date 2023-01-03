@@ -18,6 +18,11 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
+#include <linux/uaccess.h>
+#include <linux/proc_fs.h>
+#include <linux/fs.h>
+#include <linux/rtc.h>
+#include <linux/timekeeping.h>
 
 #define PON_REV2			0x01
 
@@ -82,6 +87,32 @@ struct pm8941_pwrkey {
 	const struct pm8941_data *data;
 };
 
+/* ASUS_BSP : long press power key + vol down key 6sec reset device +++ */
+static int boot_after_60sec = 0;
+static bool is_boot_after_60sec(void);
+
+static int power_key_6s_running = 0;
+static int voldown_key_6s_running = 0;
+static int power_key_3s_running = 0;
+static int voldown_key_3s_running = 0;
+static struct work_struct pwr_press_work;
+static struct work_struct volDown_press_work;
+
+static unsigned long press_time;
+struct timer_list pwr_press_timer;
+struct timer_list voldown_press_timer;
+/* ASUS_BSP : long press power key + vol down key 6sec reset device --- */
+
+static bool gresin_irq_enable = false;
+
+bool volume_key_wake_en = 0; /* /sys/module/pm8941_pwrkey/parameters/volume_key_wake_en, default is N */
+module_param(volume_key_wake_en, bool, 0644);
+MODULE_PARM_DESC(volume_key_wake_en, "Enable/Disable volume key wakeup");
+
+int vol_up_irq = 0;
+module_param(vol_up_irq, int, 0644);
+MODULE_PARM_DESC(vol_up_irq, "vol_up_irq");
+
 static int pm8941_reboot_notify(struct notifier_block *nb,
 				unsigned long code, void *unused)
 {
@@ -141,6 +172,33 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+//ASUS_bsp add module for powerkey+++++++
+#if (defined(ASUS_FTM_BUILD) && (defined(ASUS_AI2202_PROJECT)))
+static int pwrkey_mode = 0;
+static int pwrkeyMode_function(const char *val,const struct kernel_param *kp)
+{
+    int ret = 0;
+    int old_val = pwrkey_mode;
+    if(ret)
+     return ret;
+    if(pwrkey_mode > 0xf) {
+        pwrkey_mode = old_val;
+        return -EINVAL;
+    }
+    ret= param_set_int(val,kp);
+    if(pwrkey_mode == 0){
+        printk("[mid_powerbtn] Normal_Mode!\n");
+    }else if(pwrkey_mode==1){
+        printk("[mid_powerbtn] Debug_Mode! \n");
+    }
+    printk("[mid_powerbtn]pwrkeyMode_function pwrkey_mode =  %d\n",pwrkey_mode);
+    return 0;
+}
+
+module_param_call(pwrkey_mode,pwrkeyMode_function,param_get_int,&pwrkey_mode,0644);
+#endif
+//ASUS_BSP add module for powerkey-----------
+
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {
 	struct pm8941_pwrkey *pwrkey = _data;
@@ -165,6 +223,33 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 
 	sts &= pwrkey->data->status_bit;
 
+	if (!boot_after_60sec) {
+		is_boot_after_60sec();
+	}
+
+	if (boot_after_60sec) {
+		if (pwrkey->code == 116 && sts) {
+			press_time = jiffies;
+			mod_timer(&pwr_press_timer, jiffies + msecs_to_jiffies(3000));
+		}
+		if (pwrkey->code == 116 && !sts) {
+			power_key_6s_running = 0;
+			power_key_3s_running = 0;
+			del_timer(&pwr_press_timer);
+			press_time = 0xFFFFFFFF;
+		}
+		if (pwrkey->code == 114) {
+			if (sts) {
+				mod_timer(&voldown_press_timer, jiffies + msecs_to_jiffies(3000));
+			}
+			else {
+				voldown_key_6s_running = 0;
+				voldown_key_3s_running = 0;
+				del_timer(&voldown_press_timer);
+			}
+		}
+	}
+
 	if (pwrkey->sw_debounce_time_us && !sts)
 		pwrkey->last_release_time = ktime_get();
 
@@ -181,6 +266,32 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 		input_sync(pwrkey->input);
 	}
 	pwrkey->last_status = sts;
+
+// ASUS_BSP +++ keypad debug log
+    printk("[keypad][pm8941-pwrkey.c] keycode=%d, state=%s\n", pwrkey->code, sts?"press":"release");
+// ASUS_BSP --- keypad debug log
+
+// ASUS_BSP +++ keypad add wakeup for COS
+    pm_wakeup_dev_event(pwrkey->dev, 1000, true);
+// ASUS_BSP --- keypad add wakeup for COS
+
+#if (defined(ASUS_FTM_BUILD) && (defined(ASUS_AI2202_PROJECT) ))
+//<ASUS-BSP>for add module for powerkey+++++++
+	if(pwrkey_mode == 1){
+		if(pwrkey->code == KEY_POWER){
+			printk("[mid_powerbtn]pwrkey mode\n");
+			 pwrkey->code = KEY_A;
+		}
+	}else{
+		if(pwrkey->code == KEY_A){
+		    pwrkey->code = KEY_POWER;
+		}
+		printk("[mid_powerbtn]normal mode\n");
+	}
+    printk("[mid_powerbtn]pwrkey->code = %d, state = %s\n", pwrkey->code, sts?"press":"release");
+    printk("[mid_powerbtn]pwrkey_mode = %d\n", pwrkey_mode);
+#endif
+//<ASUS-BSP>for add module for powerkey------
 
 	input_report_key(pwrkey->input, pwrkey->code, sts);
 	input_sync(pwrkey->input);
@@ -223,9 +334,17 @@ static int __maybe_unused pm8941_pwrkey_suspend(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
-		enable_irq_wake(pwrkey->irq);
-
+	if (device_may_wakeup(dev)) {
+		if (!strcmp (pwrkey->data->name, "pmic_resin")) {
+			if(volume_key_wake_en) {
+				gresin_irq_enable = true;
+				enable_irq_wake(pwrkey->irq);
+				enable_irq_wake(vol_up_irq);
+			}
+		} else {
+			enable_irq_wake(pwrkey->irq);
+		}
+	}
 	return 0;
 }
 
@@ -233,14 +352,108 @@ static int __maybe_unused pm8941_pwrkey_resume(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
-		disable_irq_wake(pwrkey->irq);
-
+	if (device_may_wakeup(dev)) {
+		if (!strcmp (pwrkey->data->name, "pmic_resin")) {
+			if(gresin_irq_enable) {
+				gresin_irq_enable = false;
+				disable_irq_wake(pwrkey->irq);
+				disable_irq_wake(vol_up_irq);
+			}
+		} else {
+			disable_irq_wake(pwrkey->irq);
+		}
+	}
 	return 0;
 }
 
 static SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 			 pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
+
+#if (defined(ASUS_FTM_BUILD) && (defined(ASUS_AI2202_PROJECT)))
+static ssize_t printklog_write (struct file *filp, const char *userbuf, size_t size, loff_t *loff_p)
+{
+	char str[128];
+	memset(str, 0, sizeof(str));
+
+	if(size > 127)
+		size = 127;
+
+	if (copy_from_user(str, userbuf, size))
+	{
+		pr_err("copy from bus failed!\n");
+		return -EFAULT;
+	}
+
+	printk(KERN_ERR"[factool log]:%s",str);
+	return size;
+}
+
+static struct proc_ops printklog_fops = {
+	.proc_write = printklog_write,
+};
+#endif
+
+/* ASUS_BSP : long press power key + vol down key 6sec reset device +++ */
+static bool is_boot_after_60sec(void)
+{
+	struct rtc_time tm;
+	struct timespec64 ts;
+	ktime_get_real_ts64(&ts);
+	ts.tv_sec -= sys_tz.tz_minuteswest * 60;
+	rtc_time64_to_tm(ts.tv_sec, &tm);
+	ktime_get_raw_ts64(&ts);
+
+	if (boot_after_60sec == 0 && ts.tv_sec >= 60) {
+		boot_after_60sec = 1;
+	}
+
+	return boot_after_60sec;
+}
+
+void pwr_press_timer_callback(struct timer_list *t)
+{
+	schedule_work(&pwr_press_work);
+}
+
+void pwr_press_workqueue(struct work_struct *work)
+{
+	if(power_key_3s_running  == 0){
+		power_key_3s_running = 1;
+		mod_timer(&pwr_press_timer, jiffies + msecs_to_jiffies(4000));
+	}else {
+		power_key_6s_running= 1;
+		if (voldown_key_6s_running ) {
+				pr_info("ASDF: reset device after power press 8 sec \n");
+				pr_info("[Reboot] Power key long press 8 sec\n");
+				msleep(200);
+				printk("force reset device!!\n");
+				kernel_restart("asus_force_reboot");
+		}
+	}
+}
+
+void volDown_press_timer_callback(struct timer_list *t)
+{
+	schedule_work(&volDown_press_work);
+}
+
+void volDown_press_workqueue(struct work_struct *work)
+{
+	if(voldown_key_3s_running  == 0){
+		voldown_key_3s_running = 1;
+		mod_timer(&voldown_press_timer, jiffies + msecs_to_jiffies(4000));
+	}else {
+		voldown_key_6s_running = 1;
+		if (power_key_6s_running ) {
+				pr_info("ASDF: reset device after power press 8 sec \n");
+				pr_info("[Reboot] Power key long press 8 sec\n");
+				msleep(200);
+				printk("force reset device!!\n");
+				kernel_restart("asus_force_reboot");
+		}
+	}
+}
+/* ASUS_BSP : long press power key + vol down key 6sec reset device ---*/
 
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
@@ -339,6 +552,10 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	input_set_capability(pwrkey->input, EV_KEY, pwrkey->code);
 
+#if (defined(ASUS_FTM_BUILD) && (defined(ASUS_AI2202_PROJECT)))
+    input_set_capability(pwrkey->input, EV_KEY, KEY_A);
+#endif
+
 	pwrkey->input->name = pwrkey->data->name;
 	pwrkey->input->phys = pwrkey->data->phys;
 
@@ -415,6 +632,20 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 	device_init_wakeup(&pdev->dev, 1);
+
+#if (defined(ASUS_FTM_BUILD) && (defined(ASUS_AI2202_PROJECT)))
+	if(proc_create("fac_printklog", 0222, NULL, &printklog_fops) == NULL)
+	{
+		printk(KERN_ERR"create printklog node is error\n");
+	}
+#endif
+
+	/* ASUS_BSP : long press power key + vol down key 6sec reset device +++ */
+	timer_setup(&pwr_press_timer, pwr_press_timer_callback, 0);
+	timer_setup(&voldown_press_timer, volDown_press_timer_callback, 0);
+	INIT_WORK(&pwr_press_work, pwr_press_workqueue);
+	INIT_WORK(&volDown_press_work, volDown_press_workqueue);
+	/* ASUS_BSP : long press power key + vol down key 6sec reset device ---*/
 
 	return 0;
 }

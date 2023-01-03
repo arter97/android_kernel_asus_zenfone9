@@ -54,6 +54,12 @@ struct cam_ois_registered_driver_t {
 struct cam_ois_i2c_info_t {
 	uint16_t slave_addr;
 	uint8_t i2c_freq_mode;
+#if defined ASUS_AI2202_PROJECT
+	//ASUS_BSP +++ Zhengwei "read id register when probe"
+	uint32_t id_register;
+	uint32_t chip_id;
+	//ASUS_BSP --- Zhengwei "read id register when probe"
+#endif
 };
 
 /**
@@ -128,6 +134,10 @@ struct cam_ois_ctrl_t {
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
+#if defined ASUS_AI2202_PROJECT
+	uint8_t ois_on; //ASUS_Byron add
+	int8_t cci_status;
+#endif
 };
 
 /**

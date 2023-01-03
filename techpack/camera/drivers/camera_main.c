@@ -101,6 +101,10 @@ static const struct camera_submodule_component camera_isp[] = {
 	{&cam_isp_dev_init_module, &cam_isp_dev_exit_module},
 #endif
 };
+#ifdef CONFIG_SPECTRA_SENSOR
+int OIS_dev_init(void);
+void OIS_dev_exit(void);
+#endif
 
 static const struct camera_submodule_component camera_sensor[] = {
 #ifdef CONFIG_SPECTRA_SENSOR
@@ -112,6 +116,7 @@ static const struct camera_submodule_component camera_sensor[] = {
 	{&cam_sensor_driver_init, &cam_sensor_driver_exit},
 	{&cam_eeprom_driver_init, &cam_eeprom_driver_exit},
 	{&cam_ois_driver_init, &cam_ois_driver_exit},
+	{&OIS_dev_init, &OIS_dev_exit},
 	{&cam_flash_init_module, &cam_flash_exit_module},
 #endif
 };

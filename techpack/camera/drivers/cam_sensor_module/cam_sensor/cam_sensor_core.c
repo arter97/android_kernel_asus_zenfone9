@@ -13,6 +13,14 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+#include "asus_cam_sensor.h"
+#endif
+
+#if defined ASUS_AI2202_PROJECT
+#include "asus_ois.h"
+#endif
+
 
 static int cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
@@ -777,6 +785,11 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	return rc;
 }
 
+#if defined ASUS_AI2202_PROJECT
+extern struct cam_ois_ctrl_t *OIS_ctrl;
+ int cam_ois_power_up(struct cam_ois_ctrl_t *o_ctrl);
+ int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl);
+#endif
 int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	void *arg)
 {
@@ -850,6 +863,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		}
 
 		/* Power up and probe sensor */
+		CAM_ERR(CAM_SENSOR, "CHHO Power up Sensor %s cam_sensor_power_up", s_ctrl->sensor_name);
 		rc = cam_sensor_power_up(s_ctrl);
 		if (rc < 0) {
 			CAM_ERR(CAM_SENSOR,
@@ -888,6 +902,17 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto free_power_settings;
 		}
 
+		#if defined ASUS_AI2202_PROJECT
+				//ASUS_BSP Lucien +++: check ois at probe
+
+		//		cam_ois_power_up(OIS_ctrl);
+				//check
+		//		cam_ois_power_down(OIS_ctrl);
+
+				ois_probe_check(s_ctrl->id);
+				//ASUS_BSP Lucien ---: check ois at probe
+		#endif
+
 		if (s_ctrl->i2c_data.reg_bank_lock_settings.is_settings_valid) {
 			rc = cam_sensor_apply_settings(s_ctrl, 0,
 				CAM_SENSOR_PACKET_OPCODE_SENSOR_REG_BANK_LOCK);
@@ -916,6 +941,10 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		 */
 		s_ctrl->is_probe_succeed = 1;
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
+
+		#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		asus_cam_sensor_init(s_ctrl);//ASUS_BSP Zhengwei "porting sensor ATD"
+		#endif
 
 		CAM_INFO(CAM_SENSOR,
 				"Probe success for %s slot:%d,slave_addr:0x%x,sensor_id:0x%x",
@@ -1399,6 +1428,7 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 		goto cci_failure;
 	}
 
+	s_ctrl->power_state = 1;//ASUS_BSP Zhengwei "porting sensor ATD"
 	return rc;
 
 cci_failure:
@@ -1462,7 +1492,7 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 	}
 
 	camera_io_release(&(s_ctrl->io_master_info));
-
+	s_ctrl->power_state = 0;//ASUS_BSP Zhengwei "porting sensor ATD"
 	return rc;
 }
 

@@ -47,6 +47,15 @@ ifeq ($(TARGET_BOARD_PLATFORM), parrot)
 	LOCAL_ADDITIONAL_DEPENDENCIES := $(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 endif
 
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+KBUILD_OPTIONS += ASUS_AI2201_CAMERA=y
+endif
+
+ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+KBUILD_OPTIONS += ASUS_AI2202_CAMERA=y
+endif
+
+
 ifeq ($(TARGET_BOARD_PLATFORM), lahaina)
 # Include Kernel DLKM Android.mk target to place generated .ko file in image
 include $(DLKM_DIR)/AndroidKernelModule.mk

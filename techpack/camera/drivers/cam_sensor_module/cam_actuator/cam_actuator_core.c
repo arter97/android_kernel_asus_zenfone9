@@ -11,6 +11,18 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+#include "actuator_i2c.h"
+#endif
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+#include "asus_actuator.h"
+uint8_t g_vcm_enabled=0;
+uint8_t g_actuator_gyro_init_state=0;
+#endif
+
+
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -436,6 +448,11 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
 
+#if defined ASUS_AI2201_PROJECT ||defined ASUS_AI2202_PROJECT
+	uint32_t reg_val;
+	int retry=3;
+#endif
+
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
 		return -EINVAL;
@@ -598,6 +615,31 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			goto end;
 		}
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		g_vcm_enabled = 1;
+#endif
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		rc = actuator_read_byte(a_ctrl, 0x00, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+		if (reg_val == 0xa5) //check VCM module
+		{
+			rc = actuator_read_byte(a_ctrl, 0x48, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+			if (reg_val != 0x02 )
+			{
+				do {
+					CAM_INFO(CAM_ACTUATOR,"Actuator asus_vcm_gyro_setting:E retry %d", retry);
+					rc = asus_vcm_gyro_setting(a_ctrl);
+					retry--;
+				}while((rc==-1)&&(retry>=0));
+
+				if (rc != -1) {
+					g_actuator_gyro_init_state = 1;
+				}
+				CAM_INFO(CAM_ACTUATOR,"Actuator asus_vcm_gyro_setting:X rc %d", rc);
+
+			}
+		}
+#endif
 
 		/* Delete the request even if the apply is failed */
 		rc = delete_request(&a_ctrl->i2c_data.init_settings);
@@ -783,6 +825,10 @@ void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl)
 		if (rc < 0)
 			CAM_ERR(CAM_ACTUATOR, "Actuator Power down failed");
 		a_ctrl->cam_act_state = CAM_ACTUATOR_ACQUIRE;
+		#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		g_vcm_enabled = 0;
+		g_actuator_gyro_init_state = 0;
+		#endif
 	}
 
 	if (a_ctrl->cam_act_state >= CAM_ACTUATOR_ACQUIRE) {
@@ -906,6 +952,11 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 			}
 		}
 
+		#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		g_vcm_enabled = 0;
+		g_actuator_gyro_init_state = 0;
+		#endif
+
 		if (a_ctrl->bridge_intf.link_hdl != -1) {
 			CAM_ERR(CAM_ACTUATOR,
 				"Device [%d] still active on link 0x%x",
@@ -1017,6 +1068,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 					rc);
 				goto release_mutex;
 			}
+
 		}
 	}
 		break;
@@ -1089,3 +1141,195 @@ int32_t cam_actuator_flush_request(struct cam_req_mgr_flush_request *flush_req)
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 	return rc;
 }
+
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+int32_t asus_vcm_gyro_setting(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	uint32_t reg_val, check_val;
+	int rc;
+
+//DO1
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x76, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO1 addr:0x44 data:0x%x  ", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x45, 0x00, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x45, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO1 addr:0x45 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x10, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO1 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+
+	if (check_val != 0) {
+		pr_err("Actuator DO1 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+//DO2
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x75, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO1 addr:0x44 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x01, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO2 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO2 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+	rc = actuator_read_byte(a_ctrl, 0x4A, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	pr_err("Actuator DO2 addr:0x4A data:0x%x  check 0x41   ", reg_val);
+	if (reg_val != 0x41) {
+		pr_err("Actuator DO2 VCM gyro setting ERROR");
+		return -1;
+	}
+
+
+//DO3
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x76, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO3 addr:0x44 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x45, 0x02, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x45, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO3 addr:0x45 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x10, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO3 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO3 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+//DO4
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x76, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO4 addr:0x44 data:0x%x", reg_val);
+
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x01, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO4 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO4 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+	rc = actuator_read_byte(a_ctrl, 0x4A, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	pr_err("Actuator DO4 addr:0x4A data:0x%x  check 0x02", reg_val);
+	if (reg_val != 0x02) {
+		pr_err("Actuator DO4 VCM gyro setting ERROR");
+		return -1;
+	}
+
+
+//DO5
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x45, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO5 addr:0x44 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x45, 0x59, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x45, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO5 addr:0x45 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x10, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO5 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO5 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+//DO6
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x45, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO6 addr:0x45 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x01, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO6 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO6 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+	rc = actuator_read_byte(a_ctrl, 0x4A, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO6 addr:0x4A data:0x%x  check 0x59   ", reg_val);
+	if (reg_val != 0x59) {
+		pr_err("Actuator DO6 VCM gyro setting ERROR");
+		return -1;
+	}
+
+
+//DO7
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x44, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO7 addr:0x44 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x45, 0x01, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x45, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO7 addr:0x45 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x10, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO7 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO7 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+
+//DO8
+	rc = actuator_write_byte(a_ctrl, 0x44, 0x44, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//rc = actuator_read_byte(a_ctrl, 0x44, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO8 addr:0x44 data:0x%x", reg_val);
+
+	rc = actuator_write_byte(a_ctrl, 0x49, 0x01, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+	rc = actuator_read_byte(a_ctrl, 0x49, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	check_val = (reg_val & 0x80); //Check bit7
+	//pr_err("Actuator DO8 addr:0x49 data:0x%x  (data & 0x80):0x%x   ", reg_val, check_val);
+	if (check_val != 0) {
+		pr_err("Actuator DO8 VCM gyro setting Check bit7 ERROR");
+		return -1;
+	}
+
+
+	rc = actuator_read_byte(a_ctrl, 0x4A, &reg_val, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	//pr_err("Actuator DO8 addr:0x4A data:0x%x  check 0x01   ", reg_val);
+	if (reg_val != 0x01) {
+		pr_err("Actuator DO8 VCM gyro setting ERROR");
+		return -1;
+	}
+
+
+
+	// To Continuous Read Mode
+	rc = actuator_write_byte(a_ctrl, 0x48, 0x02, CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+    return rc;
+}
+#endif

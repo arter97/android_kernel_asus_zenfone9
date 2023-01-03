@@ -504,6 +504,7 @@ static int cam_cci_component_bind(struct device *dev,
 
 	g_cci_subdev[soc_info->index] = &new_cci_dev->v4l2_dev_str.sd;
 	mutex_init(&(new_cci_dev->init_mutex));
+	mutex_init(&(new_cci_dev->asus_mutex));
 	CAM_DBG(CAM_CCI, "Device Type :%d", soc_info->index);
 
 	cpas_parms.cam_cpas_client_cb = NULL;

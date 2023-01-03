@@ -7,6 +7,14 @@ $(info "CAMERA_KERNEL_ROOT is: $(CAMERA_KERNEL_ROOT)")
 $(info "KERNEL_ROOT is: $(KERNEL_ROOT)")
 endif
 
+ifeq ($(ASUS_AI2201_CAMERA), y)
+KBUILD_CPPFLAGS += -DASUS_AI2201_PROJECT=1
+endif
+
+ifeq ($(ASUS_AI2202_CAMERA), y)
+KBUILD_CPPFLAGS += -DASUS_AI2202_PROJECT=1
+endif
+
 # Include Architecture configurations
 ifeq ($(CONFIG_ARCH_KALAMA), y)
 include $(CAMERA_KERNEL_ROOT)/config/kalama.mk
@@ -239,6 +247,27 @@ camera-$(CONFIG_SPECTRA_SENSOR) += \
 	drivers/cam_sensor_module/cam_flash/cam_flash_dev.o \
 	drivers/cam_sensor_module/cam_flash/cam_flash_core.o \
 	drivers/cam_sensor_module/cam_flash/cam_flash_soc.o
+
+ifeq ($(ASUS_AI2201_CAMERA), y)
+camera-$(CONFIG_SPECTRA_SENSOR) += \
+	drivers/cam_sensor_module/cam_actuator/actuator_i2c.o \
+	drivers/cam_sensor_module/cam_actuator/asus_actuator.o \
+	drivers/cam_sensor_module/cam_sensor/asus_cam_sensor.o \
+	drivers/cam_sensor_module/cam_flash/asus_flash.o
+endif
+
+
+ifeq ($(ASUS_AI2202_CAMERA), y)
+camera-$(CONFIG_SPECTRA_SENSOR) += \
+	drivers/cam_sensor_module/cam_actuator/actuator_i2c.o \
+	drivers/cam_sensor_module/cam_ois/asus_ois.o \
+	drivers/cam_sensor_module/cam_ois/dev_def.o \
+	drivers/cam_sensor_module/cam_ois/asus_dev_imp.o \
+	drivers/cam_sensor_module/cam_actuator/asus_actuator.o \
+	drivers/cam_sensor_module/cam_sensor/asus_cam_sensor.o \
+	drivers/cam_sensor_module/cam_flash/asus_flash.o
+endif
+
 
 camera-$(CONFIG_SPECTRA_CUSTOM) += \
 	drivers/cam_cust/cam_custom_hw_mgr/cam_custom_hw1/cam_custom_sub_mod_soc.o \

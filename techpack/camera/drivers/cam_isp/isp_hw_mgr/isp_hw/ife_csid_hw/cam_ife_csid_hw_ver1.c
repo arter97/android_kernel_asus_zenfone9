@@ -3941,6 +3941,14 @@ static int cam_ife_csid_ver1_get_evt_payload(
 	return 0;
 }
 
+
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+extern uint8_t g_cam_csi_check;  //ASUS_BSP Bryant "Add for camera csi debug"
+extern uint8_t g_cam_csi_check_count;  //ASUS_BSP "Add for camera csi debug count"
+#endif
+
+
 static int cam_ife_csid_ver1_rx_bottom_half_handler(
 		struct cam_ife_csid_ver1_hw *csid_hw,
 		struct cam_ife_csid_ver1_evt_payload *evt_payload)
@@ -3984,6 +3992,10 @@ static int cam_ife_csid_ver1_rx_bottom_half_handler(
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"RX_ERROR_LANE0_FIFO_OVERFLOW: Skew/Less Data on lanes/ Slow csid clock:%luHz\n",
 				soc_info->applied_src_clk_rate);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_LAN0_OVERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
 
 		if (irq_status & IFE_CSID_VER1_RX_LANE1_FIFO_OVERFLOW) {
@@ -3991,6 +4003,10 @@ static int cam_ife_csid_ver1_rx_bottom_half_handler(
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"RX_ERROR_LANE1_FIFO_OVERFLOW: Skew/Less Data on lanes/ Slow csid clock:%luHz\n",
 				soc_info->applied_src_clk_rate);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_LAN1_OVERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
 
 		if (irq_status & IFE_CSID_VER1_RX_LANE2_FIFO_OVERFLOW) {
@@ -3998,26 +4014,45 @@ static int cam_ife_csid_ver1_rx_bottom_half_handler(
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"RX_ERROR_LANE2_FIFO_OVERFLOW: Skew/Less Data on lanes/ Slow csid clock:%luHz\n",
 				soc_info->applied_src_clk_rate);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_LAN2_OVERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
+
 
 		if (irq_status & IFE_CSID_VER1_RX_LANE3_FIFO_OVERFLOW) {
 			event_type |= CAM_ISP_HW_ERROR_CSID_LANE_FIFO_OVERFLOW;
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"RX_ERROR_LANE3_FIFO_OVERFLOW: Skew/Less Data on lanes/ Slow csid clock:%luHz\n",
 				soc_info->applied_src_clk_rate);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_LAN3_OVERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
+
 
 		if (irq_status & IFE_CSID_VER1_RX_TG_FIFO_OVERFLOW) {
 			event_type |= CAM_ISP_HW_ERROR_CSID_OUTPUT_FIFO_OVERFLOW;
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"RX_ERROR_TPG_FIFO_OVERFLOW: Backpressure from IFE\n");
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_TG_OVERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
 
 		if (irq_status & IFE_CSID_VER1_RX_CPHY_PH_CRC) {
 			event_type |= CAM_ISP_HW_ERROR_CSID_PKT_HDR_CORRUPTED;
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"CPHY_PH_CRC: Pkt Hdr CRC mismatch\n");
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_CPHY_PH_CRC;
+            g_cam_csi_check_count++;
+			#endif
 		}
+
 
 		if (irq_status & IFE_CSID_VER1_RX_STREAM_UNDERFLOW) {
 			event_type |= CAM_ISP_HW_ERROR_CSID_MISSING_PKT_HDR_DATA;
@@ -4027,12 +4062,20 @@ static int cam_ife_csid_ver1_rx_bottom_half_handler(
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"ERROR_STREAM_UNDERFLOW: Fewer bytes rcvd than WC:%d in pkt hdr\n",
 				val & 0xFFFF);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_STREAM_UNDERFLOW;
+            g_cam_csi_check_count++;
+			#endif
 		}
 
 		if (irq_status & IFE_CSID_VER1_RX_ERROR_ECC) {
 			event_type |= CAM_ISP_HW_ERROR_CSID_PKT_HDR_CORRUPTED;
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"DPHY_ERROR_ECC: Pkt hdr errors unrecoverable\n");
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_ERROR_ECC;
+            g_cam_csi_check_count++;
+			#endif
 		}
 
 		if (irq_status & IFE_CSID_VER1_RX_UNBOUNDED_FRAME) {
@@ -4054,6 +4097,10 @@ static int cam_ife_csid_ver1_rx_bottom_half_handler(
 			event_type |= CAM_ISP_HW_ERROR_CSID_PKT_PAYLOAD_CORRUPTED;
 			CAM_ERR_BUF(CAM_ISP, log_buf, CAM_IFE_CSID_LOG_BUF_LEN, &len,
 				"CPHY_ERROR_CRC: Long pkt payload CRC mismatch\n");
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			g_cam_csi_check = CSID_ERROR_ECC;
+            g_cam_csi_check_count++;
+			#endif
 		}
 	}
 

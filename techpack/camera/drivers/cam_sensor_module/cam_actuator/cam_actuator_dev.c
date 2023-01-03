@@ -9,6 +9,9 @@
 #include "cam_actuator_core.h"
 #include "cam_trace.h"
 #include "camera_main.h"
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+#include "asus_actuator.h"
+#endif
 
 static int cam_actuator_subdev_close_internal(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh)
@@ -401,6 +404,10 @@ static int cam_actuator_platform_component_bind(struct device *dev,
 
 	platform_set_drvdata(pdev, a_ctrl);
 	a_ctrl->cam_act_state = CAM_ACTUATOR_INIT;
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+	asus_actuator_init(a_ctrl);
+	CAM_INFO(CAM_ACTUATOR, "Actuator Probe Success.");
+#endif
 	CAM_DBG(CAM_ACTUATOR, "Component bound successfully %d",
 		a_ctrl->soc_info.index);
 
@@ -531,6 +538,7 @@ int cam_actuator_driver_init(void)
 	rc = i2c_add_driver(&cam_actuator_i2c_driver);
 	if (rc)
 		CAM_ERR(CAM_ACTUATOR, "i2c_add_driver failed rc = %d", rc);
+
 
 	return rc;
 }

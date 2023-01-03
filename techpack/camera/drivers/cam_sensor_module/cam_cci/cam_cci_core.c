@@ -10,6 +10,10 @@
 #include "cam_req_mgr_workq.h"
 #include "cam_common_util.h"
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+extern uint8_t g_cam_cci_check;  //ASUS_BSP "Add for camera cci debug"
+#endif
+
 static int32_t cam_cci_convert_type_to_num_bytes(
 	enum camera_sensor_i2c_type type)
 {
@@ -1532,6 +1536,14 @@ static int32_t cam_cci_i2c_write(struct v4l2_subdev *sd,
 	}
 
 ERROR:
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+	if (rc < 0) {
+		CAM_ERR(CAM_CCI, "cam_cci_i2c_write failed rc:%d", rc);
+		g_cam_cci_check=1;//ASUS_BSP Jason "Add for camera cci debug"
+	}
+#endif
+
 	spin_lock(&cci_dev->cci_master_info[master].freq_cnt_lock);
 	if (--cci_dev->cci_master_info[master].freq_ref_cnt == 0)
 		up(&cci_dev->cci_master_info[master].master_sem);
@@ -1777,6 +1789,12 @@ static int32_t cam_cci_read_bytes(struct v4l2_subdev *sd,
 		if (rc) {
 			CAM_ERR(CAM_CCI, "CCI%d_I2C_M%d Failed to read rc:%d",
 				cci_dev->soc_info.index, master, rc);
+			#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+			CAM_ERR(CAM_CCI, "CCI read fail slave address 0x%x (7 bit)", c_ctrl->cci_info->sid);
+			if (c_ctrl->cci_info->sid != 0x10)//skip slave address(0x20) of ov13B10 module
+				g_cam_cci_check=1;//ASUS_BSP "Add for camera cci debug"
+
+			#endif
 			goto ERROR;
 		}
 
@@ -1944,12 +1962,14 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 		 * CCI version 1.2 does not support burst read
 		 * due to the absence of the read threshold register
 		 */
+		mutex_lock(&cci_dev->asus_mutex);
 		if (cci_dev->hw_version == CCI_VERSION_1_2_9) {
 			CAM_DBG(CAM_CCI, "cci-v1.2 no burst read");
 			rc = cam_cci_read_bytes_v_1_2(sd, cci_ctrl);
 		} else {
 			rc = cam_cci_read_bytes(sd, cci_ctrl);
 		}
+		mutex_unlock(&cci_dev->asus_mutex);
 		break;
 	case MSM_CCI_I2C_WRITE:
 	case MSM_CCI_I2C_WRITE_SEQ:
@@ -1957,7 +1977,9 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	case MSM_CCI_I2C_WRITE_SYNC:
 	case MSM_CCI_I2C_WRITE_ASYNC:
 	case MSM_CCI_I2C_WRITE_SYNC_BLOCK:
+		mutex_lock(&cci_dev->asus_mutex);
 		rc = cam_cci_write(sd, cci_ctrl);
+		mutex_unlock(&cci_dev->asus_mutex);
 		break;
 	case MSM_CCI_GPIO_WRITE:
 		break;

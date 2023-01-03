@@ -1554,6 +1554,10 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 			ps[i].seq_type = SENSOR_VANA1;
 		} else if (!strcmp(seq_name, "cam_clk")) {
 			ps[i].seq_type = SENSOR_MCLK;
+#if defined ASUS_AI2202_PROJECT
+			} else if (!strcmp(seq_name, "cam_reset")) {
+				ps[i].seq_type = SENSOR_RESET;
+#endif
 		} else {
 			CAM_ERR(CAM_SENSOR, "unrecognized seq-type %s",
 				seq_name);
@@ -1766,6 +1770,23 @@ int cam_sensor_util_init_gpio_pin_tbl(
 
 		CAM_DBG(CAM_SENSOR, "gpio-reset %d",
 			gpio_num_info->gpio_num[SENSOR_RESET]);
+
+		//ASUS_BSP: yusiang: try to set output low and pull down gpio-reset due to the voltage issue
+#if defined ASUS_AI2202_PROJECT
+		CAM_INFO(CAM_SENSOR,"try to config gpio-reset\n");
+		rc = gpio_request(gpio_num_info->gpio_num[SENSOR_RESET], "gpio-reset");
+		if (rc) {
+			CAM_ERR(CAM_SENSOR,"failed to request gpio-rest, rc = %d\n",rc);
+		}else{
+			rc = gpio_direction_output(gpio_num_info->gpio_num[SENSOR_RESET], 0);
+			if (rc)
+				CAM_ERR(CAM_SENSOR,"gpio-rest pull down failed, rc = %d\n",rc);
+			else
+				CAM_INFO(CAM_SENSOR,"gpio-rest pull down ok");
+
+			gpio_free(gpio_num_info->gpio_num[SENSOR_RESET]);
+		}
+#endif
 	}
 
 	rc = of_property_read_u32(of_node, "gpio-standby", &val);
@@ -1974,6 +1995,9 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 	return rc;
 }
 
+#if defined ASUS_AI2202_PROJECT
+extern uint8_t g_ois_power_state[];
+#endif
 int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info)
 {
@@ -2140,6 +2164,8 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 				CAM_DBG(CAM_SENSOR, "Enable Regulator");
 				vreg_idx = power_setting->seq_val;
 
+				CAM_ERR(CAM_SENSOR, "CHHO  Enable Regulator %s ", soc_info->rgltr_name[vreg_idx]);
+
 				if (IS_ERR_OR_NULL(
 					soc_info->rgltr[vreg_idx])) {
 					rc = PTR_ERR(soc_info->rgltr[vreg_idx]);
@@ -2192,7 +2218,12 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 			usleep_range(power_setting->delay * 1000,
 				(power_setting->delay * 1000) + 1000);
 	}
-
+#if defined ASUS_AI2202_PROJECT
+	pr_err("[OIS] sensor power up, index=%d", soc_info->index);
+		if(soc_info->index==0) {
+				g_ois_power_state[soc_info->index]=1;
+			}
+#endif
 	return 0;
 power_up_failed:
 	CAM_ERR(CAM_SENSOR, "failed. rc:%d", rc);
@@ -2464,6 +2495,14 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 	cam_sensor_util_request_gpio_table(soc_info, 0);
 	ctrl->cam_pinctrl_status = 0;
+
+#if defined ASUS_AI2202_PROJECT
+		pr_err("[OIS] sensor power down, index=%d", soc_info->index);
+			if(soc_info->index==0) {
+					g_ois_power_state[soc_info->index]=0;
+				}
+#endif
+
 
 	return 0;
 }

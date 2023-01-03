@@ -18,4 +18,12 @@ int cam_flash_led_prepare(struct led_trigger *trigger, int options,
 	int *max_current, bool is_wled);
 
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+//ASUS_BSP +++ Shianliang add low battery checking
+struct cam_flash_ctrl;
+int cam_flash_battery_low(int enable);
+void cam_flash_copy_fctrl(struct cam_flash_ctrl *fctrl);
+//ASUS_BSP --- Shianliang add low battery checking
+#endif
+
 #endif /*_CAM_FLASH_CORE_H_*/

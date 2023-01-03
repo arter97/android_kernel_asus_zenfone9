@@ -15,6 +15,9 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#if defined ASUS_AI2202_PROJECT
+#include "asus_ois.h"
+#endif
 int32_t cam_ois_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -102,13 +105,23 @@ static int cam_ois_get_dev_handle(struct cam_ois_ctrl_t *o_ctrl,
 	return 0;
 }
 
-static int cam_ois_power_up(struct cam_ois_ctrl_t *o_ctrl)
+int cam_ois_power_up(struct cam_ois_ctrl_t *o_ctrl)
 {
 	int                             rc = 0;
 	struct cam_hw_soc_info          *soc_info =
 		&o_ctrl->soc_info;
 	struct cam_ois_soc_private *soc_private;
 	struct cam_sensor_power_ctrl_t  *power_info;
+
+
+
+
+#if defined ASUS_AI2202_PROJECT
+	pr_err("[cam_ois_power_up][OIS] DATA sensor power up, index=%d, in cam_ois_power_up skip", soc_info->index);
+	asus_ois_init_config(o_ctrl->soc_info.index);
+	CAM_INFO(CAM_OIS,"OIS POWER UP");
+	return rc;
+#endif
 
 	soc_private =
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
@@ -176,7 +189,7 @@ cci_failure:
  *
  * Returns success or failure
  */
-static int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
+ int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
 {
 	int32_t                         rc = 0;
 	struct cam_sensor_power_ctrl_t  *power_info;
@@ -189,10 +202,18 @@ static int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
 		return -EINVAL;
 	}
 
+
 	soc_private =
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
 	power_info = &soc_private->power_info;
 	soc_info = &o_ctrl->soc_info;
+
+#if defined ASUS_AI2202_PROJECT
+			pr_err("[OIS] sensor power down, index=%d", soc_info->index);
+			asus_ois_deinit_config(o_ctrl->soc_info.index);
+			CAM_INFO(CAM_OIS,"OIS POWER DOWN");
+			return rc;
+#endif
 
 	if (!power_info) {
 		CAM_ERR(CAM_OIS, "failed: power_info %pK", power_info);
@@ -252,10 +273,15 @@ static int cam_ois_update_time(struct i2c_settings_array *i2c_set)
 
 	return rc;
 }
+//#define DEBUG_S4W_OIS
 
 static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 	struct i2c_settings_array *i2c_set)
 {
+#ifdef DEBUG_S4W_OIS
+			char oneLine[1024]="";
+			char oneChar[100]="";
+#endif
 	struct i2c_settings_list *i2c_list;
 	int32_t rc = 0;
 	uint32_t i, size;
@@ -270,16 +296,39 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 		return -EINVAL;
 	}
 
+	pr_err("OIS oisEnable, cam_ois_apply_settings");
+
+#if defined ASUS_AI2202_PROJECT
+	//ASUS_BSP +++ Zhengwei "block i2c r/w if probe failed"
+	if(get_ois_status(o_ctrl->soc_info.index) != 1)
+	{
+		CAM_ERR(CAM_OIS, "Probe failed, not do any i2c r/w");
+		return 0;
+	}
+	//ASUS_BSP --- Zhengwei "block i2c r/w if probe failed"
+#endif
 	list_for_each_entry(i2c_list,
 		&(i2c_set->list_head), list) {
 		if (i2c_list->op_code ==  CAM_SENSOR_I2C_WRITE_RANDOM) {
+
+#ifdef DEBUG_S4W_OIS
+			size = i2c_list->i2c_settings.size;
+			for (i = 0; i < size; i++) {
+				sprintf(oneChar, " 0x%X=0x%X", i2c_list->i2c_settings.reg_setting[i].reg_addr, i2c_list->i2c_settings.reg_setting[i].reg_data);
+				strcat(oneLine, oneChar);
+			}
+			sprintf(oneChar, "(%d) | ", size);
+			strcat(oneLine, oneChar);
+#endif
 			rc = camera_io_dev_write(&(o_ctrl->io_master_info),
 				&(i2c_list->i2c_settings));
 			if (rc < 0) {
 				CAM_ERR(CAM_OIS,
-					"Failed in Applying i2c wrt settings");
+					"[OIS] OIS oisEnable Failed in Applying i2c wrt settings");
 				return rc;
 			}
+
+
 		} else if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_SEQ) {
 			rc = camera_io_dev_write_continuous(
 				&(o_ctrl->io_master_info),
@@ -311,6 +360,9 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 		}
 	}
 
+#ifdef DEBUG_S4W_OIS
+	pr_err("[OIS] Data CamX apply settings [%d]=%s\n", size, oneLine );
+#endif
 	return rc;
 }
 
@@ -656,6 +708,8 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 
 		if (o_ctrl->cam_ois_state != CAM_OIS_CONFIG) {
+
+
 			rc = cam_ois_power_up(o_ctrl);
 			if (rc) {
 				CAM_ERR(CAM_OIS, " OIS Power up failed");
@@ -1032,6 +1086,22 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		o_ctrl->cam_ois_state = CAM_OIS_START;
 		break;
 	case CAM_CONFIG_DEV:
+#if defined ASUS_AI2202_PROJECT
+		#ifdef CAM_FACTORY_CONFIG
+		if(get_ois_power_state(o_ctrl->soc_info.index) == 1)
+		{
+			CAM_ERR(CAM_OIS, "Factory Mode, OIS can not be configured by HAL!");
+			rc = 0;
+			goto release_mutex;
+		}
+		#endif
+		if(get_ois_status(o_ctrl->soc_info.index) != 1 && get_ois_power_state(o_ctrl->soc_info.index) == 1)
+		{
+			CAM_ERR(CAM_OIS, "Probe failed, OIS can not be configured by HAL!,index(%u) g_ois_status = %d, g_ois_power_state = %d\n",o_ctrl->soc_info.index,get_ois_status(o_ctrl->soc_info.index),get_ois_power_state(o_ctrl->soc_info.index));
+			rc = -EINVAL;
+			goto release_mutex;
+		}
+#endif
 		rc = cam_ois_pkt_parse(o_ctrl, arg);
 		if (rc) {
 			CAM_ERR(CAM_OIS, "Failed in ois pkt Parsing");

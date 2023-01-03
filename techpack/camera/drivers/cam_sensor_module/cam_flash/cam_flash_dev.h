@@ -233,6 +233,13 @@ int cam_flash_pmic_flush_request(struct cam_flash_ctrl *fctrl,
 	enum cam_flash_flush_type, uint64_t req_id);
 void cam_flash_shutdown(struct cam_flash_ctrl *fctrl);
 int cam_flash_release_dev(struct cam_flash_ctrl *fctrl);
+//ASUS_BSP +++ Zhengwei "porting flash"
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+int cam_flash_low(struct cam_flash_ctrl *flash_ctrl,struct cam_flash_frame_setting *flash_data);
+int cam_flash_high(struct cam_flash_ctrl *flash_ctrl,struct cam_flash_frame_setting *flash_data);
+#endif
+//ASUS_BSP --- Zhengwei "porting flash"
+
 
 /**
  * @brief : API to register FLASH hw to platform framework.

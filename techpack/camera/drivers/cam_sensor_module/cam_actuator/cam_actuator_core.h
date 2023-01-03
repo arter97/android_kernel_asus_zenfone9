@@ -63,4 +63,8 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl, void *arg);
  */
 void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl);
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+int32_t asus_vcm_gyro_setting(struct cam_actuator_ctrl_t *a_ctrl);
+#endif
+
 #endif /* _CAM_ACTUATOR_CORE_H_ */

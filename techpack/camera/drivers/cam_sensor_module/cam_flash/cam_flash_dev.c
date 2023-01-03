@@ -9,6 +9,9 @@
 #include "cam_flash_core.h"
 #include "cam_common_util.h"
 #include "camera_main.h"
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+#include "asus_flash.h"
+#endif
 
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
@@ -85,7 +88,20 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			rc = -EFAULT;
 			goto release_mutex;
 		}
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		CAM_INFO(CAM_FLASH,
+			"CAM_ACQUIRE_DEV flash_acq_dev.device_handle 0x%x fctrl:0x%x fctrl->pdev:0x%x change state from %d to %d",
+			flash_acq_dev.device_handle,
+			fctrl,
+			fctrl->pdev,
+			fctrl->flash_state,
+			CAM_FLASH_STATE_ACQUIRE); //ASUS_BSP Shianliang "add log for debug"
 		fctrl->flash_state = CAM_FLASH_STATE_ACQUIRE;
+		cam_flash_copy_fctrl(fctrl); //ASUS_BSP Shianliang add low battery checking
+#else
+		fctrl->flash_state = CAM_FLASH_STATE_ACQUIRE;
+#endif
 
 		CAM_INFO(CAM_FLASH, "CAM_ACQUIRE_DEV for dev_hdl: 0x%x",
 			fctrl->bridge_intf.device_hdl);
@@ -133,6 +149,14 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 				CAM_WARN(CAM_FLASH, "Power Down Failed");
 		}
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+		CAM_INFO(CAM_FLASH,
+			"CAM_RELEASE_DEV fctrl:%d fctrl->pdev:%d change state from %d to %d",
+			fctrl,
+			fctrl->pdev,
+			fctrl->flash_state,
+			CAM_FLASH_STATE_INIT); //ASUS_BSP Shianliang "add log for debug"
+#endif
 		fctrl->flash_state = CAM_FLASH_STATE_INIT;
 		break;
 	}
@@ -404,7 +428,12 @@ static int cam_flash_component_bind(struct device *dev,
 	struct device_node *of_parent = NULL;
 	struct platform_device *pdev = to_platform_device(dev);
 
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+	CAM_DBG(CAM_FLASH, "Flash probe Enter");
+#else
 	CAM_DBG(CAM_FLASH, "Binding flash component");
+#endif
 	if (!pdev->dev.of_node) {
 		CAM_ERR(CAM_FLASH, "of_node NULL");
 		return -EINVAL;
@@ -505,7 +534,13 @@ static int cam_flash_component_bind(struct device *dev,
 	mutex_init(&(fctrl->flash_mutex));
 
 	fctrl->flash_state = CAM_FLASH_STATE_INIT;
+
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+	asus_flash_init(fctrl);//ASUS_BSP Zhengwei "porting flash"
+	CAM_DBG(CAM_FLASH, "Flash probe succeed");
+#else
 	CAM_DBG(CAM_FLASH, "Component bound successfully");
+#endif
 	return rc;
 
 free_cci_resource:

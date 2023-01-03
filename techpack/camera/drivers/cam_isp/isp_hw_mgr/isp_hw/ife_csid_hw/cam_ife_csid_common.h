@@ -101,6 +101,28 @@ enum cam_ife_csid_irq_reg {
 	CAM_IFE_CSID_IRQ_REG_MAX,
 };
 
+#if defined ASUS_AI2201_PROJECT || defined ASUS_AI2202_PROJECT
+//ASUS_BSP +++ "Add for camera csi debug"
+/* enum cam_csid_error_state*/
+enum cam_csid_error_state {
+	DEFAUT = 0,
+	CSID_LAN0_OVERFLOW = 1,
+	CSID_LAN1_OVERFLOW = 2,
+	CSID_LAN2_OVERFLOW = 3,
+	CSID_LAN3_OVERFLOW = 4,
+	CSID_TG_OVERFLOW = 5,
+	CSID_CPHY_PH_CRC = 6,
+	CSID_ERROR_CRC = 7,
+	CSID_ERROR_ECC = 8,
+	CSID_ERROR_CSID_FATAL = 9,
+	CSID_ERROR_RECOVERY_OVERFLOW = 10,
+	CSID_ERROR_CSID_FRAME_SIZE = 11,
+	CSID_STREAM_UNDERFLOW = 12,
+};
+//ASUS_BSP ---"Add for camera csi debug"
+#endif
+
+
 /*
  * struct cam_ife_csid_irq_desc: Structure to hold IRQ description
  *

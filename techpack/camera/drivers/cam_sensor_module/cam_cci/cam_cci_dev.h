@@ -230,6 +230,7 @@ struct cci_device {
 	bool is_burst_read[MASTER_MAX];
 	uint32_t irqs_disabled;
 	struct mutex init_mutex;
+	struct mutex asus_mutex;
 	uint64_t  dump_en;
 };
 

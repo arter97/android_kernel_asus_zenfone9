@@ -41,6 +41,9 @@ static int cam_ois_subdev_close(struct v4l2_subdev *sd,
 	return cam_ois_subdev_close_internal(sd, fh);
 }
 
+#if defined ASUS_AI2202_PROJECT
+#include "asus_ois.h"
+#endif
 static long cam_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
@@ -373,6 +376,10 @@ static int cam_ois_component_bind(struct device *dev,
 	platform_set_drvdata(pdev, o_ctrl);
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 	CAM_DBG(CAM_OIS, "Component bound successfully");
+
+#if defined ASUS_AI2202_PROJECT
+	asus_ois_init(o_ctrl);//ASUS_BSP Zhengwei "porting ois"
+#endif
 	return rc;
 unreg_subdev:
 	cam_unregister_subdev(&(o_ctrl->v4l2_dev_str));

@@ -24,8 +24,21 @@ KBUILD_OPTIONS += $(DISPLAY_SELECT)
 
 KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS=$(PWD)/$(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 
+ifeq ($(ASUS_GKI_BUILD), y)
+KBUILD_OPTIONS += ASUS_GKI_BUILD=y
+endif
+
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+KBUILD_OPTIONS += ASUS_AI2201_DISPLAY=y
+endif
+
+ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+KBUILD_OPTIONS += ASUS_AI2202_DISPLAY=y
+endif
 ###########################################################
+
 include $(CLEAR_VARS)
+
 LOCAL_SRC_FILES   := $(wildcard $(LOCAL_PATH)/**/*) $(wildcard $(LOCAL_PATH)/*)
 LOCAL_MODULE              := msm_drm.ko
 LOCAL_MODULE_KBUILD_NAME  := msm_drm.ko

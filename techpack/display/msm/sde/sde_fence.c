@@ -65,6 +65,8 @@ static void sde_fence_dump_user_fds_info(struct dma_fence *base_fence)
 	}
 }
 
+extern bool reduce_fence_timeout;
+
 signed long sde_sync_wait(void *fnc, long timeout_ms)
 {
 	struct dma_fence *fence = fnc;
@@ -75,10 +77,21 @@ signed long sde_sync_wait(void *fnc, long timeout_ms)
 	else if (dma_fence_is_signaled(fence))
 		return timeout_ms ? msecs_to_jiffies(timeout_ms) : 1;
 
+	if (reduce_fence_timeout)
+		timeout_ms = 100;
+
 	rc = dma_fence_wait_timeout(fence, true,
 				msecs_to_jiffies(timeout_ms));
 	if (!rc || (rc == -EINVAL) || fence->error) {
 		status = dma_fence_get_status(fence);
+
+		// reset timeout
+		if (reduce_fence_timeout) {
+			pr_err("[Display] reset fence timeout for DP\n");
+			reduce_fence_timeout = false;
+			return rc;
+		}
+
 		if (test_bit(SPEC_FENCE_FLAG_FENCE_ARRAY, &fence->flags)) {
 			if (status == -EINVAL) {
 				SDE_INFO("spec fence bind failure status:%d\n", status);

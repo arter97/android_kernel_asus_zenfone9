@@ -1386,6 +1386,8 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 	const u32 max_retries = 50;
 	u32 retry;
 
+	return rc;
+
 	if (dp->aux_switch_ready)
 	       return rc;
 
@@ -2976,6 +2978,9 @@ static enum drm_mode_status dp_display_validate_mode(
 
 	rc = dp_display_validate_pixel_clock(dp_mode, dp_display->max_pclk_khz);
 	if (rc)
+		goto end;
+
+	if (!dp_asus_validate_mode(dp_panel, mode))
 		goto end;
 
 	mode_status = MODE_OK;

@@ -73,6 +73,9 @@
 		pr_err("[drm:%s][msm-dp-err][%-4d]"fmt, __func__,   \
 				current->pid, ##__VA_ARGS__)
 
+#define DP_LOG(fmt, ...)                                    \
+    pr_info("[Display][msm-dp:%s] "fmt, __func__, ##__VA_ARGS__)
+
 #define DEFAULT_DISCONNECT_DELAY_MS 0
 #define MAX_DISCONNECT_DELAY_MS 10000
 #define DEFAULT_CONNECT_NOTIFICATION_DELAY_MS 150

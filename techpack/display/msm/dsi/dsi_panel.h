@@ -179,6 +179,11 @@ struct dsi_panel_reset_config {
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
+	/* ASUS BSP Display +++ */
+	int err_fg_gpio;
+#if defined ASUS_AI2201_PROJECT
+	int err_fg_irq;
+#endif
 };
 
 enum esd_check_status_mode {
@@ -288,6 +293,62 @@ struct dsi_panel {
 	enum dsi_panel_physical_type panel_type;
 
 	struct dsi_panel_ops panel_ops;
+
+	/* ASUS BSP Display +++ */
+#ifdef ASUS_AI2201_PROJECT
+	bool power_on;
+	const char *panel_vendor_id;
+	int panel_hbm_mode;
+	int panel_fod_hbm_mode;
+	int allow_panel_fod_hbm;
+	bool allow_fod_hbm_process;
+	bool panel_is_on;
+	u32 panel_last_backlight;
+	u32 panel_aod_last_bl;
+	int panel_bl_count; // count for enable dimming
+	bool aod_state;
+	int dc_mode;
+	bool dc_bl_delay;
+	bool fod_in_doze;
+	bool err_fg_irq_is_on;
+	bool esd_fail;
+	bool is_gamma_get;
+	bool is_gamma_change;
+	bool is_first_gamma_set; // for boot up first time
+	int aod_mode;
+	bool aod_delay;
+	bool ever_panel_off;
+	u32 c2_last; // store c2_last value
+	atomic_t is_dc_change;
+	atomic_t is_bl_ready;
+	atomic_t allow_bl_change;
+	atomic_t is_fps_pending;
+	atomic_t is_i6_change;
+	u32 csc_mode; // pw i6 mode
+	atomic_t is_spot_ready; // to replace fod_spot_ui_ready
+	ktime_t ktime0; // to record the start time of FOD HBM ON
+#endif
+
+#ifdef ASUS_AI2202_PROJECT
+	const char *panel_vendor_id;
+	int panel_hbm_mode;
+	bool panel_is_on;
+	bool aod_state;
+	bool aod_delay;
+	int aod_mode;
+	u32 panel_last_backlight;
+	u32 panel_aod_last_bl;
+	int panel_bl_count; // count for enable dimming
+	int dc_mode;
+	bool dc_bl_delay;
+	u32 c2_last; // store c2_last value
+	atomic_t is_dc_change;
+	atomic_t is_bl_ready;
+	atomic_t allow_bl_change;
+	atomic_t is_fps_pending;
+	atomic_t is_i6_change;
+	u32 csc_mode; // pw i6 mode
+#endif
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)

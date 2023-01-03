@@ -20,6 +20,8 @@
 #include "sde_rm.h"
 #include "sde_vm.h"
 #include <drm/drm_probe_helper.h>
+//ASUS BSP Display +++
+#include "../dsi/dsi_ai2201.h"
 
 #define BL_NODE_NAME_SIZE 32
 #define HDR10_PLUS_VSIF_TYPE_CODE      0x81
@@ -1174,7 +1176,15 @@ void sde_connector_helper_bridge_enable(struct drm_connector *connector)
 	if (!sde_in_trusted_vm(sde_kms) && c_conn->bl_device && !display->poms_pending) {
 		c_conn->bl_device->props.power = FB_BLANK_UNBLANK;
 		c_conn->bl_device->props.state &= ~BL_CORE_FBBLANK;
+#if defined ASUS_AI2201_PROJECT
+		if (get_charger_mode() || (display->panel->power_on && ai2201_get_err_fg_pending())) {
+            DSI_LOG("backlight_update_status");
+            ai2201_set_err_fg_pending(false);
+			backlight_update_status(c_conn->bl_device);
+		}
+#else
 		backlight_update_status(c_conn->bl_device);
+#endif
 	}
 }
 
@@ -2778,6 +2788,14 @@ static void sde_connector_check_status_work(struct work_struct *work)
 
 	rc = conn->ops.check_status(&conn->base, conn->display, false);
 	mutex_unlock(&conn->lock);
+
+#if defined ASUS_AI2201_PROJECT
+	// ASUS BSP Display  ERR FG
+	if(ai2201_get_err_fg_irq_state()){
+		DSI_LOG("err fg irq state is on // call panel dead");
+		_sde_connector_report_panel_dead(conn, false);
+	}
+#endif
 
 	if (rc > 0) {
 		u32 interval;

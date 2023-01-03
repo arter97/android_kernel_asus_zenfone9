@@ -484,7 +484,7 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 	struct device *dev;
 	struct dss_module_power *mp;
 	static const char * const gpio_names[] = {
-		"aux_enable", "aux_sel", "usbplug_cc",
+		"aux_enable", "aux_sel", //"usbplug_cc", /* ASUS BSP Display +++ */
 	};
 
 	if (!power) {
@@ -499,6 +499,7 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 		unsigned int gpio = mp->gpio_config[i].gpio;
 
 		if (gpio_is_valid(gpio)) {
+			pr_err("[DP] request %s, %d gpio", gpio_names[i], gpio);
 			rc = gpio_request(gpio, gpio_names[i]);
 			if (rc) {
 				DP_ERR("request %s gpio failed, rc=%d\n",
@@ -534,14 +535,15 @@ static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 			config->value = flip;
 
 		if (gpio_is_valid(config->gpio)) {
-			DP_DEBUG("gpio %s, value %d\n", config->gpio_name,
+			pr_err("[DP] gpio %s, value %d\n", config->gpio_name,
 				config->value);
 
 			if (dp_power_find_gpio(config->gpio_name, "aux-en") ||
-			    dp_power_find_gpio(config->gpio_name, "aux-sel"))
+			    dp_power_find_gpio(config->gpio_name, "aux-sel")) {
+				pr_err("[DP] config gpio %s\n", config->gpio_name);
 				gpio_direction_output(config->gpio,
 					config->value);
-			else
+			} else
 				gpio_set_value(config->gpio, config->value);
 
 		}
@@ -573,7 +575,11 @@ static int dp_power_config_gpios(struct dp_power_private *power, bool flip,
 	} else {
 		for (i = 0; i < mp->num_gpio; i++) {
 			if (gpio_is_valid(config[i].gpio)) {
-				gpio_set_value(config[i].gpio, 0);
+				/* ASUS BSP Display, aux-en default is high +++ */
+				if (dp_power_find_gpio(config[i].gpio_name, "aux-en"))
+					gpio_set_value(config[i].gpio, 0);
+				else
+					gpio_set_value(config[i].gpio, 0);
 				gpio_free(config[i].gpio);
 			}
 		}

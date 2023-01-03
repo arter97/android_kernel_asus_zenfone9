@@ -1598,6 +1598,11 @@ static int _sde_encoder_update_rsc_client(
 			rsc_state = SDE_RSC_CLK_STATE;
 	}
 
+/* ASUS BSP Display +++ */
+	// Disable rsc until system more stable **NEED TO REVERT**
+	rsc_state = SDE_RSC_IDLE_STATE;
+/* ASUS BSP Display --- */
+
 	is_vid_mode = sde_encoder_check_curr_mode(&sde_enc->base,
 				MSM_DISPLAY_VIDEO_MODE);
 	mode = &sde_enc->crtc->state->mode;

@@ -186,6 +186,11 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_NOISE_LAYER_V1,
 	CRTC_PROP_FRAME_DATA_BUF,
 
+	// ASUS BSP Display +++
+	CRTC_PROP_FOD_MASKER, // 23
+	CRTC_PROP_FOD_SPOT, // 24
+	// ASUS BSP Display ---
+
 	/* total # of properties */
 	CRTC_PROP_COUNT
 };

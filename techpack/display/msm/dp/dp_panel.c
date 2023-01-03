@@ -79,19 +79,19 @@ struct dp_panel_private {
 };
 
 static const struct dp_panel_info fail_safe = {
-	.h_active = 640,
-	.v_active = 480,
-	.h_back_porch = 48,
-	.h_front_porch = 16,
-	.h_sync_width = 96,
+	.h_active = 1920,
+	.v_active = 1080,
+	.h_back_porch = 148,
+	.h_front_porch = 88,
+	.h_sync_width = 44,
 	.h_active_low = 0,
-	.v_back_porch = 33,
-	.v_front_porch = 10,
-	.v_sync_width = 2,
+	.v_back_porch = 36,
+	.v_front_porch = 4,
+	.v_sync_width = 5,
 	.v_active_low = 0,
 	.h_skew = 0,
 	.refresh_rate = 60,
-	.pixel_clk_khz = 25200,
+	.pixel_clk_khz = 148500,
 	.bpp = 24,
 };
 
@@ -1588,6 +1588,8 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	u8 *dpcd, rx_feature, temp;
 	u32 dfp_count = 0, offset = DP_DPCD_REV;
 
+	int dpcd_retry = 3;
+
 	if (!dp_panel) {
 		DP_ERR("invalid input\n");
 		rc = -EINVAL;
@@ -1611,6 +1613,24 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 		rc = -EINVAL;
 		goto end;
 	}
+
+	/* fix TT#260414 +++ */
+	do {
+		rlen = drm_dp_dpcd_read(drm_aux, DP_TRAINING_AUX_RD_INTERVAL, &temp, 1);
+		if (rlen != 1) {
+			if (dpcd_retry > 1) {
+				DP_LOG("retry reading DP_TRAINING_AUX_RD_INTERVAL\n");
+				mdelay(70);
+			} else {
+				DP_ERR("error reading DP_TRAINING_AUX_RD_INTERVAL\n");
+				rc = -EINVAL;
+				goto end;
+			}
+		} else {
+			break;
+		}
+		dpcd_retry--;
+	} while (dpcd_retry > 0);
 
 	/* check for EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT */
 	if (temp & BIT(7)) {
@@ -1749,6 +1769,8 @@ end:
 	edid = dp_panel->edid_ctrl->edid;
 	dp_panel->audio_supported = drm_detect_monitor_audio(edid);
 
+	dp_asus_extract_id(dp_panel);
+
 	return ret;
 }
 
@@ -1875,8 +1897,10 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 	}
 
 	/* There is no need to read EDID from MST branch */
-	if (panel->parser->has_mst && dp_panel->read_mst_cap(dp_panel))
-		goto skip_edid;
+	if (panel->parser->has_mst && dp_panel->read_mst_cap(dp_panel)) {
+		DP_ERR("still we need to see edid to determine panel name");
+		//goto skip_edid;
+	}
 
 	rc = dp_panel_read_edid(dp_panel, connector);
 	if (rc) {
@@ -1884,7 +1908,7 @@ static int dp_panel_read_sink_caps(struct dp_panel *dp_panel,
 		return rc;
 	}
 
-skip_edid:
+//skip_edid:
 	dp_panel->widebus_en = panel->parser->has_widebus;
 	dp_panel->dsc_feature_enable = panel->parser->dsc_feature_enable;
 	dp_panel->fec_feature_enable = panel->parser->fec_feature_enable;
@@ -1922,6 +1946,11 @@ static u32 dp_panel_get_supported_bpp(struct dp_panel *dp_panel,
 		min_supported_bpp = 24;
 
 	bpp = min_t(u32, mode_edid_bpp, max_supported_bpp);
+
+	// TT#255578, TT#260643
+	if (mode_edid_bpp > max_supported_bpp || dp_asus_validate_24_bpp(dp_panel))
+		min_supported_bpp = 24;
+	/* ASUS BSP Display --- */
 
 	link_params = &panel->link->link_params;
 
@@ -2938,8 +2967,13 @@ static bool dp_panel_read_mst_cap(struct dp_panel *dp_panel)
 
 	mst_cap = (dpcd & DP_MST_CAP) ? true : false;
 
+	if (dp_panel->asus_proc_codes == 0x326 && !strncmp(dp_panel->asus_vendor, "AUS", 3)) {
+		pr_err("This panel has issue in MST, disable MST\n");
+		mst_cap = false;
+	}
+
 end:
-	DP_DEBUG("dp mst-cap: %d\n", mst_cap);
+	DP_ERR("dp mst-cap: %d\n", mst_cap);
 
 	return mst_cap;
 }
@@ -3149,3 +3183,96 @@ void dp_panel_put(struct dp_panel *dp_panel)
 
 	devm_kfree(panel->dev, panel);
 }
+
+/* ASUS BSP Display +++ */
+bool asus_is_hdmi = false;
+
+static bool dp_asus_is_hdmi_bridge(struct dp_panel *dp_panel)
+{
+	return (dp_panel->dpcd[DP_DOWNSTREAMPORT_PRESENT] &
+		0x15);
+}
+
+bool dp_asus_validate_24_bpp(struct dp_panel *dp_panel)
+{
+	if (!dp_panel->asus_vendor)
+		return false;
+
+	if (dp_asus_is_hdmi_bridge(dp_panel))
+		return true;
+
+#if 0
+	if (!strncmp(dp_panel->asus_vendor, "ACR", 3))
+
+	// fix TT#260643
+	if (!strncmp(dp_panel->asus_vendor, "ACI", 3))
+		return true;
+#endif
+
+	return false;
+}
+
+bool dp_asus_validate_mode(struct dp_panel *dp_panel,
+		struct drm_display_mode *mode)
+{
+	int min_supported_vrefresh = 60;
+	int max_supported_vrefresh = 144;
+	int max_supported_vrefresh_hdmi = 120;
+	int current_vrefresh = 60;
+	bool status = false;
+
+	if (!dp_panel || !mode) {
+		DP_LOG("invalid params\n");
+		return status;
+	}
+
+	current_vrefresh = drm_mode_vrefresh(mode);
+	asus_is_hdmi = dp_asus_is_hdmi_bridge(dp_panel);
+
+	// fps limitation if hdmi bridge
+	if (asus_is_hdmi && (current_vrefresh > max_supported_vrefresh_hdmi))
+		goto end;
+
+	// fps limitation
+	if ((!dp_panel->connector->under_60hz_allowed) &&
+			((current_vrefresh < min_supported_vrefresh) ||
+			(current_vrefresh > max_supported_vrefresh)))
+		goto end;
+
+	// monitor size must width > height
+	if (mode->vdisplay > mode->hdisplay)
+		goto end;
+
+	status = true;
+
+end:
+	// if wide aspect allowed, set asus_is_hdmi to false
+	if(dp_panel->connector->wide_aspect_allowed && asus_is_hdmi)
+		asus_is_hdmi = false;
+
+	return status;
+}
+
+void dp_asus_extract_id(struct dp_panel *dp_panel)
+{
+	struct edid *edid;
+
+	if (!dp_panel || !dp_panel->edid_ctrl) {
+		DP_LOG("invalid input\n");
+		return;
+	}
+
+	edid = dp_panel->edid_ctrl->edid;
+	if (!edid) {
+		DP_LOG("invalid parameter\n");
+		return;
+	}
+
+	dp_panel->asus_proc_codes = ((u32)edid->prod_code[1] << 4) +
+			(edid->prod_code[0] >> 4);
+	dp_panel->asus_vendor = dp_panel->edid_ctrl->vendor_id;
+
+	DP_LOG("vendor_id=%s, proc_codes(product id)=0x%x\n",
+		   dp_panel->asus_vendor, dp_panel->asus_proc_codes);
+}
+/* ASUS BSP Display --- */

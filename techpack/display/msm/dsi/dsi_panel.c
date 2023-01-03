@@ -19,6 +19,19 @@
 #include "sde_dsc_helper.h"
 #include "sde_vdc_helper.h"
 
+/* ASUS BSP Display +++ */
+#include "dsi_ai2201.h"
+#include "dsi_ai2202.h"
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#if defined ASUS_AI2201_PROJECT
+extern int display_commit_cnt;
+ktime_t err_ktime0;
+#endif
+#if defined ASUS_AI2202_PROJECT
+extern int display_commit_cnt;
+#endif
+
 /**
  * topology is currently defined by a set of following 3 values:
  * 1. num of layer mixers
@@ -111,6 +124,21 @@ static int dsi_panel_vreg_put(struct dsi_panel *panel)
 	return rc;
 }
 
+#if defined ASUS_AI2201_PROJECT
+/* interrupt handler */
+static irqreturn_t err_fg_interrupt(int irq, void *dev_id)
+{
+	ktime_t err_ktime1 = ktime_get();
+	DSI_LOG("ktime diff %d", (u32)ktime_to_us(err_ktime1) - (u32)ktime_to_us(err_ktime0));
+
+	if ((u32)ktime_to_us(err_ktime1) - (u32)ktime_to_us(err_ktime0) > 60000) {
+		ai2201_set_err_fg_irq_state(true);
+	}
+
+	return IRQ_HANDLED;
+}
+#endif
+
 static int dsi_panel_gpio_request(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -158,7 +186,23 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 		}
 	}
 
+	if (gpio_is_valid(r_config->err_fg_gpio)) {
+		rc = gpio_request(r_config->err_fg_gpio, "err_fg_gpio");
+		if (rc) {
+			DSI_LOG("request for err_fg_gpio failed, rc=%d\n", rc);
+			goto error_release_err_fg;
+		}
+	}
+
 	goto error;
+/* ASUS BSP Display +++ */
+error_release_err_fg:
+	if (gpio_is_valid(r_config->err_fg_gpio)) {
+		gpio_free(r_config->err_fg_gpio);
+#if defined ASUS_AI2201_PROJECT
+		free_irq(r_config->err_fg_irq, NULL);
+#endif
+	}
 error_release_mode_sel:
 	if (gpio_is_valid(panel->bl_config.en_gpio))
 		gpio_free(panel->bl_config.en_gpio);
@@ -191,6 +235,11 @@ static int dsi_panel_gpio_release(struct dsi_panel *panel)
 
 	if (gpio_is_valid(panel->panel_test_gpio))
 		gpio_free(panel->panel_test_gpio);
+
+	/* ASUS BSP Display +++ */
+	if (gpio_is_valid(r_config->err_fg_gpio))
+		gpio_free(r_config->err_fg_gpio);
+	/* ASUS BSP Display --- */
 
 	return rc;
 }
@@ -356,6 +405,9 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+	/*ASUS BSP Display +++ */
+	DSI_LOG("panel on +++\n");
+
 	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
 	if (rc) {
 		DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
@@ -390,12 +442,24 @@ error_disable_vregs:
 	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
 
 exit:
+	/*ASUS BSP Display +++ */
+	DSI_LOG("panel on ---\n");
+#if defined ASUS_AI2201_PROJECT
+	panel->power_on = true;
+#endif
+
 	return rc;
 }
 
 static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
+
+	/*ASUS BSP Display +++ */
+	DSI_LOG("panel off +++\n");
+#if defined ASUS_AI2201_PROJECT
+	panel->power_on = false;
+#endif
 
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
@@ -425,6 +489,8 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
 				panel->name, rc);
 
+	/*ASUS BSP Display +++ */
+	DSI_LOG("panel off ---\n");
 	return rc;
 }
 static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
@@ -566,6 +632,52 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		mode_flags = dsi->mode_flags;
 		dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	}
+
+	/* ASUS BSP Display +++ */
+#if defined ASUS_AI2201_PROJECT
+	DSI_LOG("[from] set bl=%d\n", bl_lvl);
+	dsi_ai2201_record_backlight(bl_lvl);
+
+	// bl denied due to DC mode changed
+	// risk: is_dc_change always is true
+	if (!panel->allow_fod_hbm_process && atomic_read(&panel->is_dc_change) &&
+		!atomic_read(&panel->allow_bl_change) && (bl_lvl > 0)) {
+		DSI_LOG("dc no bl\n");
+		return rc;
+	}
+
+	// always 0 except project Anakin & Picasso
+	if (panel->allow_panel_fod_hbm == 1)
+		return rc;
+
+	dsi_ai2201_set_dimming_smooth(panel, bl_lvl);
+	bl_lvl = dsi_ai2201_backlightupdate(bl_lvl);
+
+	DSI_LOG("[to] set bl=%d\n", bl_lvl);
+#endif
+	/* ASUS BSP Display --- */
+
+#if defined ASUS_AI2202_PROJECT
+	DSI_LOG("[from] set bl=%d\n", bl_lvl);
+	dsi_ai2202_record_backlight(bl_lvl);
+
+	// bl denied due to DC mode changed
+	// risk: is_dc_change always is true
+	if (atomic_read(&panel->is_dc_change) &&
+		!atomic_read(&panel->allow_bl_change) && (bl_lvl > 0)) {
+		DSI_LOG("dc no bl\n");
+		return rc;
+	}
+
+	if (panel->panel_hbm_mode == 3) {
+		DSI_LOG("hbm mode %d no bl\n", panel->panel_hbm_mode);
+		return rc;
+	}
+
+	dsi_ai2202_set_dimming_smooth(panel, bl_lvl);
+	bl_lvl = dsi_ai2202_backlightupdate(bl_lvl);
+	DSI_LOG("[to] set bl=%d\n", bl_lvl);
+#endif
 
 	if (panel->bl_config.bl_inverted_dbv)
 		bl_lvl = (((bl_lvl & 0xff) << 8) | (bl_lvl >> 8));
@@ -1921,6 +2033,23 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command",
 	"qcom,mdss-dsi-qsync-on-commands",
 	"qcom,mdss-dsi-qsync-off-commands",
+	/* ASUS BSP Display, refer to panel dtsi +++ */
+	"qcom,mdss-dsi-asus-post-on-command",
+	"qcom,mdss-dsi-hbm-on-command",
+	"qcom,mdss-dsi-hbm-off-command",
+	"qcom,mdss-dsi-fod-hbm-on-command",
+	"qcom,mdss-dsi-post-fod-hbm-on-command",
+	"qcom,mdss-dsi-fod-hbm-off-command",
+	"qcom,mdss-dsi-hdr-hbm-on-command",
+	"qcom,mdss-dsi-hdr-hbm-off-command",
+	"qcom,mdss-dsi-cam-hbm-on-command",
+	"qcom,mdss-dsi-aod-low-command",
+	"qcom,mdss-dsi-aod-high-command",
+	"qcom,mdss-dsi-aod-other-command",
+	"qcom,mdss-dsi-dimming-speed-1frame-command",
+	"qcom,mdss-dsi-dimming-speed-20frame-command",
+	"qcom,mdss-dsi-dimming-smooth-command",
+	/* ASUS BSP Display, refer to panel dtsi +++ */
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1949,6 +2078,23 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
+	/* ASUS BSP Display, refer to panel dtsi +++ */
+	"qcom,mdss-dsi-asus-post-on-command-state",
+	"qcom,mdss-dsi-hbm-on-command-state",
+	"qcom,mdss-dsi-hbm-off-command-state",
+	"qcom,mdss-dsi-fod-hbm-on-command-state",
+	"qcom,mdss-dsi-post-fod-hbm-on-command-state",
+	"qcom,mdss-dsi-fod-hbm-off-command-state",
+	"qcom,mdss-dsi-hdr-hbm-on-command-state",
+	"qcom,mdss-dsi-hdr-hbm-off-command-state",
+	"qcom,mdss-dsi-cam-hbm-on-command-state",
+	"qcom,mdss-dsi-aod-low-command-state",
+	"qcom,mdss-dsi-aod-high-command-state",
+	"qcom,mdss-dsi-aod-other-command-state",
+	"qcom,mdss-dsi-dimming-speed-1frame-command-state",
+	"qcom,mdss-dsi-dimming-speed-20frame-command-state",
+	"qcom,mdss-dsi-dimming-smooth-command-state",
+	/* ASUS BSP Display, refer to panel dtsi --- */
 };
 
 int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -2448,6 +2594,28 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel)
 	if (!gpio_is_valid(panel->panel_test_gpio))
 		DSI_DEBUG("%s:%d panel test gpio not specified\n", __func__,
 			 __LINE__);
+
+/* ASUS BSP Display +++ */
+	panel->reset_config.err_fg_gpio = utils->get_named_gpio(utils->data,
+					"qcom,platform-err-fg-gpio",
+					0);
+	if (!gpio_is_valid(panel->reset_config.err_fg_gpio))
+		DSI_ERR("[%s] platform-err-fg-gpio is not set, rc=%d\n",
+			 panel->name, rc);
+	else {
+		gpio_direction_input(panel->reset_config.err_fg_gpio);
+#if defined ASUS_AI2201_PROJECT
+		panel->reset_config.err_fg_irq = gpio_to_irq(panel->reset_config.err_fg_gpio);
+		if(panel->reset_config.err_fg_irq < 0)
+			DSI_ERR("[%s] platform-err-fg-gpio to irq failed, rc=%d\n",
+			 panel->name, panel->reset_config.err_fg_irq);
+		rc = request_irq(panel->reset_config.err_fg_irq, err_fg_interrupt, IRQF_TRIGGER_FALLING , "ERR_FG", NULL);
+		if(rc < 0)
+			DSI_ERR("[%s] request_irq failed, rc=%d\n",
+			 panel->name, rc);
+#endif
+	}
+	/* ASUS BSP Display --- */
 
 error:
 	return rc;
@@ -4422,10 +4590,34 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		panel->power_mode != SDE_MODE_DPMS_LP2)
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_IDLE);
+
+/* ASUS BSP Display, TT#291333 +++ */
+#if defined ASUS_AI2201_PROJECT
+	msleep(17);
+#endif
+/* ASUS BSP Display, TT#291333 --- */
+
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LP1);
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_LP1 cmd, rc=%d\n",
 		       panel->name, rc);
+
+#if defined ASUS_AI2201_PROJECT
+	panel->aod_state = true;
+	// for AOD state restore backlight after received notify
+	if(display_commit_cnt < COMMIT_FRAMES_COUNT) {
+		panel->aod_delay = true;
+	}
+#endif
+
+#if defined ASUS_AI2202_PROJECT
+	panel->aod_state = true;
+	// for AOD state restore backlight after received notify
+	if(display_commit_cnt < COMMIT_FRAMES_COUNT) {
+		panel->aod_delay = true;
+	}
+#endif
+
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -4466,6 +4658,20 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (!panel->panel_initialized)
 		goto exit;
 
+#if defined ASUS_AI2201_PROJECT
+	if (!panel->aod_state) {
+		DSI_LOG("already exit to normal mode\n");
+		goto exit;
+	}
+#endif
+
+#if defined ASUS_AI2202_PROJECT
+	if (!panel->aod_state) {
+		DSI_LOG("already exit to normal mode\n");
+		goto exit;
+	}
+#endif
+
 	/*
 	 * Consider about LP1->LP2->NOLP.
 	 */
@@ -4479,6 +4685,25 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
 exit:
+#if defined ASUS_AI2201_PROJECT || defined ASUS_PICASSO_PROJECT
+	panel->aod_state = false;
+	panel->panel_aod_last_bl = 0;
+
+	// to avoid panel in display off
+	if (panel->fod_in_doze) {
+		DSI_LOG("fod_in_doze (%d), set display on\n", panel->fod_in_doze);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_POST_FOD_HBM_ON);
+		if (rc)
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_POST_FOD_HBM_ON cmd, rc=%d\n",
+			       panel->name, rc);
+		panel->fod_in_doze = false;
+	}
+#endif
+
+#if defined ASUS_AI2202_PROJECT
+	panel->aod_state = false;
+	panel->panel_aod_last_bl = 0;
+#endif
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
@@ -4766,6 +4991,34 @@ int dsi_panel_switch(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
+#if defined ASUS_AI2201_PROJECT
+	if (panel->aod_state) {
+		DSI_LOG("exit AOD (%d) before fps change\n", panel->aod_state);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
+		if (rc)
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmds, rc=%d\n",
+				   panel->name, rc);
+		else {
+			panel->aod_state = false;
+			panel->panel_aod_last_bl = 0;
+		}
+	}
+#endif
+
+#if defined ASUS_AI2202_PROJECT
+	if (panel->aod_state) {
+		DSI_LOG("exit AOD (%d) before fps change\n", panel->aod_state);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
+		if (rc)
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmds, rc=%d\n",
+				   panel->name, rc);
+		else {
+			panel->aod_state = false;
+			panel->panel_aod_last_bl = 0;
+		}
+	}
+#endif
+
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_TIMING_SWITCH);
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_TIMING_SWITCH cmds, rc=%d\n",
@@ -4804,9 +5057,30 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	DSI_LOG("dsi_panel_enable");
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
+/* ASUS BSP Display +++ */
+#if defined ASUS_AI2201_PROJECT
+
+	usleep_range(61 * 1000, (61 * 1000) + 100);
+	if (rc)
+		DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
+			   panel->name, rc);
+	else {
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ASUS_POST_ON);
+		if (rc)
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_ASUS_POST_ON cmds, rc=%d\n",
+				   panel->name, rc);
+		else {
+			panel->panel_initialized = true;
+			DSI_LOG("enable ESD irq");
+			err_ktime0 = ktime_get();
+			enable_irq(panel->reset_config.err_fg_irq);
+		}
+	}
+#else
 	if (rc) {
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
 		       panel->name, rc);
@@ -4831,6 +5105,7 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	panel->panel_initialized = true;
 
 error:
+#endif
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
@@ -4892,6 +5167,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	DSI_LOG("dsi_panel_disable");
 	mutex_lock(&panel->panel_lock);
 
 	/* Avoid sending panel off commands when ESD recovery is underway */
@@ -4905,6 +5181,11 @@ int dsi_panel_disable(struct dsi_panel *panel)
 			panel->power_mode == SDE_MODE_DPMS_LP2))
 			dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 				"ibb", REGULATOR_MODE_STANDBY);
+#if defined ASUS_AI2201_PROJECT
+		// ASUS BSP Allen   ESD workaround, prevent vendor panel cmd cause panel voltage dropped then trigger irq
+		DSI_LOG("disable ESD irq");
+		disable_irq_nosync(panel->reset_config.err_fg_irq);
+#endif
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_OFF);
 		if (rc) {
 			/*

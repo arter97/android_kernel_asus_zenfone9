@@ -44,6 +44,10 @@
 #include "msm_drv.h"
 #include "sde_vm.h"
 
+/* ASUS BSP Display +++ */
+#include "../dsi/dsi_ai2201.h"
+#include "../dsi/dsi_ai2202.h"
+
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
@@ -4034,6 +4038,10 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 
 	SDE_ATRACE_BEGIN("crtc_commit");
 
+	// ASUS BSP Display +++
+	//ai2201_crtc_display_commit(crtc);
+	ai2201_set_notify_spot_ready(crtc);
+
 	idle_pc_state = sde_crtc_get_property(cstate, CRTC_PROP_IDLE_PC_STATE);
 
 	sde_crtc->kickoff_in_progress = true;
@@ -4096,7 +4104,13 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 		if (encoder->crtc != crtc)
 			continue;
 
+		/* ASUS BSP Display +++ */
+		ai2201_crtc_display_commit(encoder, crtc);
+		ai2201_set_dc_bl_process(encoder, crtc);
+
 		sde_encoder_kickoff(encoder, true);
+
+		ai2202_set_dc_bl_process(encoder, crtc);
 	}
 	sde_crtc->kickoff_in_progress = false;
 
@@ -4108,6 +4122,10 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 		sde_crtc->event = crtc->state->event;
 		spin_unlock_irqrestore(&dev->event_lock, flags);
 	}
+
+	/* ASUS BSP Display +++ */
+	dsi_ai2201_frame_commit_cnt(crtc);
+	dsi_ai2202_frame_commit_cnt(crtc);
 
 	SDE_ATRACE_END("crtc_commit");
 }
@@ -4603,6 +4621,10 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 
 	power_on = 0;
 	sde_crtc_event_notify(crtc, DRM_EVENT_CRTC_POWER, &power_on, sizeof(u32));
+
+	/* ASUS BSP Display +++ */
+	dsi_ai2201_clear_commit_cnt();
+	dsi_ai2202_clear_commit_cnt();
 
 	mutex_unlock(&sde_crtc->crtc_lock);
 }
@@ -5916,6 +5938,16 @@ static void sde_crtc_install_properties(struct drm_crtc *crtc,
 
 	sde_crtc_install_perf_properties(sde_crtc, sde_kms, catalog, info);
 
+	// ASUS BSP Display +++
+	msm_property_install_range(&sde_crtc->property_info,
+		"fod_masker", 0, 0, U64_MAX, 0,
+		CRTC_PROP_FOD_MASKER);
+
+	msm_property_install_range(&sde_crtc->property_info,
+		"fod_spot", 0, 0, U64_MAX, 0,
+		CRTC_PROP_FOD_SPOT);
+	// ASUS BSP Display ---
+
 	if (catalog->has_trusted_vm_support) {
 		int init_idx = sde_in_trusted_vm(sde_kms) ? 1 : 0;
 
@@ -6158,6 +6190,13 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 	case CRTC_PROP_FRAME_DATA_BUF:
 		_sde_crtc_set_frame_data_buffers(crtc, cstate, (void __user *)(uintptr_t)val);
 		break;
+	// ASUS BSP Display +++
+	case CRTC_PROP_FOD_MASKER:
+	case CRTC_PROP_FOD_SPOT:
+		//printk("FOD:sde_crtc_atomic_set_property(), %d,%d",old_has_fov_makser,has_fov_makser);
+		ai2201_crtc_fod_masker_spot(crtc, idx, val);
+		break;
+	// ASUS BSP Display ---
 	default:
 		/* nothing to do */
 		break;

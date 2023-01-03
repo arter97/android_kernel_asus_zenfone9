@@ -12,6 +12,18 @@ else
 endif
 endif
 
+ifeq ($(ASUS_GKI_BUILD), y)
+KBUILD_CPPFLAGS += -DASUS_GKI_BUILD=1
+endif
+
+ifeq ($(ASUS_AI2201_DISPLAY), y)
+KBUILD_CPPFLAGS += -DASUS_AI2201_PROJECT=1
+endif
+
+ifeq ($(ASUS_AI2202_DISPLAY), y)
+KBUILD_CPPFLAGS += -DASUS_AI2202_PROJECT=1
+endif
+
 ifeq ($(CONFIG_ARCH_NEO), y)
 	include $(DISPLAY_ROOT)/config/gki_neodisp.conf
 	LINUX_INC +=	-include $(DISPLAY_ROOT)/config/gki_neodispconf.h
@@ -226,7 +238,9 @@ msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 				 dsi/dsi_display.o \
 				 dsi/dsi_panel.o \
 				 dsi/dsi_clk_manager.o \
-				 dsi/dsi_display_test.o
+				 dsi/dsi_display_test.o \
+				 dsi/dsi_ai2201.o \
+				 dsi/dsi_ai2202.o
 
 msm_drm-$(CONFIG_DSI_PARSER) += dsi/dsi_parser.o
 

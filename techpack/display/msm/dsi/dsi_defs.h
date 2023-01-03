@@ -31,6 +31,15 @@
 								##__VA_ARGS__)
 #define DSI_DEBUG(fmt, ...)	DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: "fmt, \
 								##__VA_ARGS__)
+
+/* ASUS BSP Display +++ */
+#ifdef ASUS_AI2201_PROJECT
+#define DSI_LOG(fmt, ...)	pr_err("[Display][msm-dsi:%s] "fmt, __func__, ##__VA_ARGS__)
+#else
+#define DSI_LOG(fmt, ...) pr_err("[Display][msm-dsi:%s] "fmt, __func__, ##__VA_ARGS__)
+#endif
+/* ASUS BSP Display --- */
+
 /**
  * enum dsi_pixel_format - DSI pixel formats
  * @DSI_PIXEL_FORMAT_RGB565:
@@ -296,6 +305,23 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	/* ASUS BSP Display +++ */
+	DSI_CMD_SET_ASUS_POST_ON,
+	DSI_CMD_SET_HBM_ON,
+	DSI_CMD_SET_HBM_OFF,
+	DSI_CMD_SET_FOD_HBM_ON,
+	DSI_CMD_SET_POST_FOD_HBM_ON,
+	DSI_CMD_SET_FOD_HBM_OFF,
+	DSI_CMD_SET_HDR_HBM_ON,
+	DSI_CMD_SET_HDR_HBM_OFF,
+	DSI_CMD_SET_CAM_HBM_ON,
+	DSI_CMD_SET_AOD_LOW,
+	DSI_CMD_SET_AOD_HIGH,
+	DSI_CMD_SET_AOD_OTHER,
+	DSI_CMD_SET_DIMMING_SPEED_1,
+	DSI_CMD_SET_DIMMING_SPEED_20,
+	DSI_CMD_SET_DIMMING_SMOOTH,
+	/* ASUS BSP Display --- */
 	DSI_CMD_SET_MAX
 };
 

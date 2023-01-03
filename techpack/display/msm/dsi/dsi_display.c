@@ -22,6 +22,14 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 
+/* ASUS BSP Display +++ */
+#include "dsi_ai2201.h"
+#include "dsi_ai2202.h"
+
+#ifdef ASUS_AI2201_PROJECT
+#define ESD_IRQ_ALWAYS_ON // Need to debug later.
+#endif
+
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
 
@@ -408,6 +416,14 @@ static irqreturn_t dsi_display_panel_te_irq_handler(int irq, void *data)
 {
 	struct dsi_display *display = (struct dsi_display *)data;
 
+#if 0 // Enable this for debug use.
+	static int shoot = 0;
+	shoot ++;
+	if ((shoot % 60) == 1){
+		printk("[Display] dsi_display_panel_te_irq_handler (%d)",shoot);
+	}
+#endif
+
 	/*
 	 * This irq handler is used for sole purpose of identifying
 	 * ESD attacks on panel and we can safely assume IRQ_HANDLED
@@ -439,12 +455,19 @@ static void dsi_display_change_te_irq_status(struct dsi_display *display,
 	}
 }
 
+#ifdef ESD_IRQ_ALWAYS_ON
+bool te_irq_registered = false;
+#endif
 static void dsi_display_register_te_irq(struct dsi_display *display)
 {
 	int rc = 0;
 	struct platform_device *pdev;
 	struct device *dev;
 	unsigned int te_irq;
+
+#ifdef ESD_IRQ_ALWAYS_ON
+	if (te_irq_registered) return;
+#endif
 
 	pdev = display->pdev;
 	if (!pdev) {
@@ -478,14 +501,20 @@ static void dsi_display_register_te_irq(struct dsi_display *display)
 			      IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 			      "TE_GPIO", display);
 	if (rc) {
-		DSI_ERR("TE request_irq failed for ESD rc:%d\n", rc);
+		DSI_ERR("[Display]:TE request_irq failed for ESD rc:%d\n", rc);
 		irq_clear_status_flags(te_irq, IRQ_DISABLE_UNLAZY);
 		goto error;
 	}
 
+#ifndef ESD_IRQ_ALWAYS_ON
 	disable_irq(te_irq);
 	display->is_te_irq_enabled = false;
+#endif
 
+#ifdef ESD_IRQ_ALWAYS_ON
+	pr_err("[Display] TE IRQ registered\n");
+	te_irq_registered = true;
+#endif
 	return;
 
 error:
@@ -887,6 +916,7 @@ static int dsi_display_status_bta_request(struct dsi_display *display)
 	return rc;
 }
 
+#ifndef ESD_IRQ_ALWAYS_ON
 static void dsi_display_release_te_irq(struct dsi_display *display)
 {
 	int te_irq = 0;
@@ -895,12 +925,18 @@ static void dsi_display_release_te_irq(struct dsi_display *display)
 	if (te_irq)
 		free_irq(te_irq, display);
 }
+#endif
 
 static int dsi_display_status_check_te(struct dsi_display *display,
 		int rechecks)
 {
 	int rc = 1, i = 0;
 	int const esd_te_timeout = msecs_to_jiffies(3*20);
+
+#ifdef ASUS_AI2201_PROJECT
+	if (!display->panel->ever_panel_off)
+		return rc;
+#endif
 
 	if (!rechecks)
 		return rc;
@@ -915,13 +951,18 @@ static int dsi_display_status_check_te(struct dsi_display *display,
 		if (!wait_for_completion_timeout(&display->esd_te_gate,
 					esd_te_timeout)) {
 			DSI_ERR("TE check failed\n");
+#ifdef ASUS_AI2201_PROJECT
+			ai2201_set_err_fg_irq_state(true);
+#endif
 			dsi_display_change_te_irq_status(display, false);
 			return -EINVAL;
 		}
 	}
 
 	dsi_display_change_te_irq_status(display, false);
+#ifndef ESD_IRQ_ALWAYS_ON
 	dsi_display_release_te_irq(display);
+#endif
 
 	return rc;
 }
@@ -1370,15 +1411,24 @@ int dsi_display_set_power(struct drm_connector *connector,
 
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
+		DSI_LOG("enter LP1 doze\n");
 		rc = dsi_panel_set_lp1(display->panel);
 		break;
 	case SDE_MODE_DPMS_LP2:
+		DSI_LOG("enter LP2 doze suspend\n");
 		rc = dsi_panel_set_lp2(display->panel);
 		break;
 	case SDE_MODE_DPMS_ON:
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
-			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
+			(display->panel->power_mode == SDE_MODE_DPMS_LP2)) {
+			DSI_LOG("exit AOD, enter NOLP\n");
 			rc = dsi_panel_set_nolp(display->panel);
+#ifdef ASUS_AI2201_PROJECT
+			if (!rc)
+				rc = dsi_panel_switch(display->panel);
+#endif
+			DSI_LOG("enter NOLP succeed (rc=%d)\n", rc);
+		}
 		break;
 	case SDE_MODE_DPMS_OFF:
 	default:
@@ -2137,7 +2187,7 @@ static int dsi_display_debugfs_deinit(struct dsi_display *display)
 {
 	return 0;
 }
-#endif /* CONFIG_DEBUG_FS */
+#endif/* CONFIG_DEBUG_FS */
 
 static void adjust_timing_by_ctrl_count(const struct dsi_display *display,
 					struct dsi_display_mode *mode)
@@ -3474,8 +3524,14 @@ int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd)
 			goto error;
 		}
 
+		/* ASUS BSP Display +++ */
+		cmd->ctrl_flags |= dsi_ai2201_support_cmd_read_flags(cmd->msg.flags);
+		cmd->ctrl_flags |= dsi_ai2202_support_cmd_read_flags(cmd->msg.flags);
+
 		rc = dsi_ctrl_cmd_transfer(display->ctrl[idx].ctrl, cmd);
-		if (rc < 0)
+
+		/* ASUS BSP Display, rc=1 if CMD_READ succeed +++ */
+		if (rc < 0 && !(cmd->ctrl_flags & DSI_CTRL_CMD_READ))
 			DSI_ERR("[%s] cmd transfer failed, rc=%d\n", display->name, rc);
 
 		dsi_ctrl_transfer_unprepare(display->ctrl[idx].ctrl, cmd->ctrl_flags);
@@ -5836,6 +5892,9 @@ static int dsi_display_bind(struct device *dev,
 
 	msm_register_vm_event(master, dev, &vm_event_ops, (void *)display);
 
+	/* ASUS BSP Display +++ */
+	dsi_ai2201_display_init(display);
+	dsi_ai2202_display_init(display);
 	goto error;
 
 error_host_deinit:
@@ -7775,6 +7834,10 @@ int dsi_display_set_mode(struct dsi_display *display,
 	SDE_EVT32(adj_mode.priv_info->mdp_transfer_time_us,
 			timing.h_active, timing.v_active, timing.refresh_rate,
 			adj_mode.priv_info->clk_rate_hz);
+	/* ASUS BSP Display +++ */
+	DSI_LOG("resolution=%d*%d, fps=%d\n",
+			timing.v_active, timing.h_active,
+			timing.refresh_rate);
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
 error:
@@ -8292,6 +8355,11 @@ error_panel_post_unprep:
 error:
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
+
+	/* ASUS BSP Display +++ */
+	dsi_ai2201_set_panel_is_on(true);
+	dsi_ai2202_set_panel_is_on(true);
+
 	return rc;
 }
 
@@ -8632,6 +8700,25 @@ int dsi_display_enable(struct dsi_display *display)
 	}
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
+// ASUS BSP Display +++
+#if defined ASUS_AI2201_PROJECT
+		// pending panel switch cmd when dc turn off (fps change from 60 to 120/144hz)
+		// high risk: will panel cmd miss to set?
+		if (atomic_read(&display->panel->is_dc_change) &&
+				display->panel->cur_mode->timing.refresh_rate > 60) {
+			atomic_set(&display->panel->is_fps_pending, 1);
+			goto error;
+		}
+#endif
+#if defined ASUS_AI2202_PROJECT
+		// pending panel switch cmd when dc turn off (fps change from 60 to 120/144hz)
+		// high risk: will panel cmd miss to set?
+		if (atomic_read(&display->panel->is_dc_change) &&
+				display->panel->cur_mode->timing.refresh_rate > 60) {
+			atomic_set(&display->panel->is_fps_pending, 1);
+			goto error;
+		}
+#endif
 		rc = dsi_panel_switch(display->panel);
 		if (rc)
 			DSI_ERR("[%s] failed to switch DSI panel mode, rc=%d\n",
@@ -8776,6 +8863,10 @@ int dsi_display_disable(struct dsi_display *display)
 		return -EINVAL;
 	}
 
+	/* ASUS BSP Display +++ */
+	dsi_ai2201_set_panel_is_on(false);
+	dsi_ai2202_set_panel_is_on(false);
+
 	SDE_EVT32(SDE_EVTLOG_FUNC_ENTRY);
 	mutex_lock(&display->display_lock);
 
@@ -8817,6 +8908,12 @@ int dsi_display_disable(struct dsi_display *display)
 	}
 
 	if (!display->poms_pending && !is_skip_op_required(display)) {
+#ifdef ESD_IRQ_ALWAYS_ON
+		if (!display->panel->ever_panel_off) {
+			display->panel->ever_panel_off = true;
+			dsi_display_register_te_irq(display);
+		}
+#endif
 		rc = dsi_panel_disable(display->panel);
 		if (rc)
 			DSI_ERR("[%s] failed to disable DSI panel, rc=%d\n",

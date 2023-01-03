@@ -349,7 +349,7 @@ static void dp_usbpd_response_cb(struct usbpd_svid_handler *hdlr, u8 cmd,
 
 	pd = container_of(hdlr, struct dp_usbpd_private, svid_handler);
 
-	DP_DEBUG("callback -> cmd: %s, *vdos = 0x%x, num_vdos = %d\n",
+	pr_err("[DP] callback -> cmd: %s, *vdos = 0x%x, num_vdos = %d\n",
 				dp_usbpd_cmd_name(cmd), *vdos, num_vdos);
 
 	if (dp_usbpd_validate_callback(cmd, cmd_type, num_vdos)) {

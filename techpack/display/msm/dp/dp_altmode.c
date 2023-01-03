@@ -16,6 +16,9 @@
 #include "dp_debug.h"
 #include "sde_dbg.h"
 
+/* ASUS BSP Display +++ */
+bool g_hpd = false;
+bool reduce_fence_timeout = false;
 
 #define ALTMODE_CONFIGURE_MASK (0x3f)
 #define ALTMODE_HPD_STATE_MASK (0x40)
@@ -137,11 +140,19 @@ static int dp_altmode_notify(void *priv, void *data, size_t len)
 			altmode->dp_altmode.base.multi_func,
 			altmode->dp_altmode.base.hpd_high,
 			altmode->dp_altmode.base.hpd_irq);
-	DP_DEBUG("connected=%d\n", altmode->connected);
+	DP_LOG("connected=%d\n", altmode->connected);
+
 	SDE_EVT32_EXTERNAL(dp_data, port_index, orientation, pin, hpd_state,
 			altmode->dp_altmode.base.multi_func,
 			altmode->dp_altmode.base.hpd_high,
 			altmode->dp_altmode.base.hpd_irq, altmode->connected);
+
+	/* ASUS BSP Display +++ */
+	if (g_hpd && !altmode->dp_altmode.base.hpd_high) {
+		DP_LOG("DP disconnect\n");
+		reduce_fence_timeout = true;
+	}
+	g_hpd = altmode->dp_altmode.base.hpd_high;
 
 	if (!pin) {
 		/* Cable detach */
@@ -161,6 +172,15 @@ static int dp_altmode_notify(void *priv, void *data, size_t len)
 
 	/* Configure */
 	if (!altmode->connected) {
+/* ASUS BSP Display +++ */
+#ifdef ASUS_AI2201_PROJECT
+		if (!msm_usb_dp_wait_synced_1()) {
+			DP_LOG("usb host turn on timeout\n");
+			goto ack;
+		}
+#endif
+/* ASUS BSP Display --- */
+
 		altmode->connected = true;
 		altmode->dp_altmode.base.alt_mode_cfg_done = true;
 		altmode->forced_disconnect = false;

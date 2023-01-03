@@ -47,6 +47,10 @@
 #define LPASS_CDC_TX_MACRO_DMIC_HPF_DELAY_MS	300
 #define LPASS_CDC_TX_MACRO_AMIC_HPF_DELAY_MS	300
 
+#ifdef ASUS_AI2201_PROJECT
+extern int audio_req_set_lcm_mode(bool enable); /* ASUS_BSP */
+#endif
+
 static int tx_unmute_delay = LPASS_CDC_TX_MACRO_DMIC_UNMUTE_DELAY_MS;
 module_param(tx_unmute_delay, int, 0664);
 MODULE_PARM_DESC(tx_unmute_delay, "delay to unmute the tx path");
@@ -1926,6 +1930,58 @@ static const struct lpass_cdc_tx_macro_reg_mask_val
 	{LPASS_CDC_TX0_TX_PATH_SEC7, 0x3F, 0x0A},
 };
 
+#ifdef ASUS_AI2201_PROJECT
+atomic_t smb1399_lcm_disable_ref_count;
+static const char *const smb1399_lcm_control_text[] = {"False", "True"};
+static SOC_ENUM_SINGLE_EXT_DECL(smb1399_lcm_control, smb1399_lcm_control_text);
+
+static int smb1399_lcm_control_get(struct snd_kcontrol *kcontrol,
+                                        struct snd_ctl_elem_value *ucontrol)
+{
+        ucontrol->value.enumerated.item[0] =
+             atomic_read(&smb1399_lcm_disable_ref_count) & 1;
+
+        return 0;
+}
+
+static int smb1399_lcm_control_put(struct snd_kcontrol *kcontrol,
+                                        struct snd_ctl_elem_value *ucontrol)
+{
+
+        switch (ucontrol->value.integer.value[0]) {
+        case 0:
+                atomic_dec(&smb1399_lcm_disable_ref_count);
+                printk("%s remove - vote LCM to disable\n", __func__);
+                if (atomic_read(&smb1399_lcm_disable_ref_count) == 0) {
+                        printk("Rquest SMB1399 to enable LCM\n");
+                        /* Enable LCM */
+                        audio_req_set_lcm_mode(true);
+                }
+                break;
+        case 1:
+                printk("%s add - vote LCM to disable\n", __func__);
+                if (atomic_read(&smb1399_lcm_disable_ref_count) == 0) {
+                        printk("Request SMB1399 to disable LCM\n");
+                        /* Disable LCM */
+                        audio_req_set_lcm_mode(false);
+                }
+                atomic_inc(&smb1399_lcm_disable_ref_count);
+                break;
+        default:
+                printk("%s wrong configuration\n", __func__);
+                break;
+        }
+
+        return 0;
+}
+
+static const struct snd_kcontrol_new msm_smb1399_lcm_controls[] = {
+        SOC_ENUM_EXT("SMB1399 LCM DISABLE VOTE", smb1399_lcm_control,
+                        smb1399_lcm_control_get,
+                        smb1399_lcm_control_put),
+};
+#endif
+
 static int lpass_cdc_tx_macro_init(struct snd_soc_component *component)
 {
 	struct snd_soc_dapm_context *dapm =
@@ -1977,6 +2033,18 @@ static int lpass_cdc_tx_macro_init(struct snd_soc_component *component)
 			__func__);
 		return ret;
 	}
+
+#ifdef ASUS_AI2201_PROJECT
+        ret = snd_soc_add_component_controls(component, msm_smb1399_lcm_controls,
+                                ARRAY_SIZE(msm_smb1399_lcm_controls));
+        if (ret < 0) {
+                pr_err("%s:add SMB1399 LCM controls failed: %d\n",
+                        __func__, ret);
+                return ret;
+        }
+        atomic_set(&smb1399_lcm_disable_ref_count, 0);
+        printk("%s add msm_smb1399_lcm_controls \n", __func__);
+#endif
 
 	snd_soc_dapm_ignore_suspend(dapm, "TX_AIF1 Capture");
 	snd_soc_dapm_ignore_suspend(dapm, "TX_AIF2 Capture");

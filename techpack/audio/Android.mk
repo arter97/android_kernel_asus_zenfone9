@@ -33,6 +33,21 @@ KBUILD_OPTIONS += MODNAME=audio_dlkm
 KBUILD_OPTIONS += BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM)
 KBUILD_OPTIONS += $(AUDIO_SELECT)
 
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+$(warning add audio flag into KBUILD_OPTIONS for cs35l45 in Android.mk for AI2201...)
+KBUILD_OPTIONS += ASUS_AI2201_AUDIO=y
+endif
+
+ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+$(warning add audio flag into KBUILD_OPTIONS for factory function in Android.mk for AI2202...)
+KBUILD_OPTIONS += ASUS_AI2202_AUDIO=y
+endif
+
+ifneq (,$(filter y,$(ASUS_FTM)))
+$(warning add audio flag into KBUILD_OPTIONS for factory function in Android.mk for AI2201/AI2202...)
+KBUILD_OPTIONS += ASUS_FTM_AUDIO=y
+endif
+
 AUDIO_SRC_FILES := \
 	$(wildcard $(LOCAL_PATH)/*) \
 	$(wildcard $(LOCAL_PATH)/*/*) \
@@ -337,6 +352,18 @@ LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 
+###########################################################
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+$(warning build audio cs35l45 in Android.mk for AI2201...)
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := cs35l45_i2c_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/cs35l45/cs35l45_i2c_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+endif
 ###########################################################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)

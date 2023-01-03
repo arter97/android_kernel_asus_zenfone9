@@ -24,6 +24,9 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/info.h>
+#if defined ASUS_AI2201_PROJECT
+#include <sound/cs35l45-i2c.h>
+#endif
 #include <soc/snd_event.h>
 #include <dsp/audio_prm.h>
 #include <soc/swr-common.h>
@@ -45,6 +48,21 @@
 #include "msm_common.h"
 #include "msm_dailink.h"
 
+//ASUS_BSP +++   add for codec_status
+#ifdef ASUS_FTM_BUILD
+#ifdef ASUS_AI2202_PROJECT
+#include <linux/proc_fs.h>
+#include <linux/syscalls.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+#define AUDIO_CODEC_PROC_FILE  "driver/audio_codec"
+static struct proc_dir_entry *audio_codec_proc_file;
+int codec_status=0;
+int codec_num=0;
+#endif
+#endif
+//ASUS_BSP ---   add for codec_status
+
 #define DRV_NAME "waipio-asoc-snd"
 #define __CHIPSET__ "WAIPIO "
 #define MSM_DAILINK_NAME(name) (__CHIPSET__#name)
@@ -53,7 +71,7 @@
 #define WCD9XXX_MBHC_DEF_BUTTONS    8
 #define CODEC_EXT_CLK_RATE          9600000
 #define DEV_NAME_STR_LEN            32
-#define WCD_MBHC_HS_V_MAX           1600
+#define WCD_MBHC_HS_V_MAX           1700  /* ASUS_BSP change to 1.7V for ASUS HW design */
 
 #define WCN_CDC_SLIM_RX_CH_MAX 2
 #define WCN_CDC_SLIM_TX_CH_MAX 2
@@ -462,10 +480,10 @@ static void *def_wcd_mbhc_cal(void)
 		(sizeof(btn_cfg->_v_btn_low[0]) * btn_cfg->num_btn);
 
 	btn_high[0] = 75;
-	btn_high[1] = 150;
-	btn_high[2] = 237;
-	btn_high[3] = 500;
-	btn_high[4] = 500;
+	btn_high[1] = 125;
+	btn_high[2] = 225;
+	btn_high[3] = 438;
+	btn_high[4] = 438;
 	btn_high[5] = 500;
 	btn_high[6] = 500;
 	btn_high[7] = 500;
@@ -632,6 +650,8 @@ static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 		.ops = &msm_common_be_ops,
 		SND_SOC_DAILINK_REG(wsa_dma_tx1),
 	},
+/* ASUS_BSP: Remove WSA vi_feedback +++ */
+#ifndef ASUS_AI2201_PROJECT
 	{
 		.name = LPASS_BE_WSA_CDC_DMA_TX_0,
 		.stream_name = LPASS_BE_WSA_CDC_DMA_TX_0,
@@ -641,6 +661,8 @@ static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 		/* .no_host_mode = SND_SOC_DAI_LINK_NO_HOST, */
 		SND_SOC_DAILINK_REG(vi_feedback),
 	},
+#endif
+/* ASUS_BSP: Remove WSA vi_feedback --- */
 	{
 		.name = LPASS_BE_WSA_CDC_DMA_RX_0_VIRT,
 		.stream_name = LPASS_BE_WSA_CDC_DMA_RX_0_VIRT,
@@ -734,6 +756,8 @@ static struct snd_soc_dai_link msm_wsa_wsa2_cdc_dma_be_dai_links[] = {
 		.ops = &msm_common_be_ops,
 		SND_SOC_DAILINK_REG(wsa_wsa2_dma_tx1),
 	},
+/* ASUS_BSP: Remove WSA vi_feedback +++ */
+#ifndef ASUS_AI2201_PROJECT
 	{
 		.name = LPASS_BE_WSA_CDC_DMA_TX_0,
 		.stream_name = LPASS_BE_WSA_CDC_DMA_TX_0,
@@ -743,6 +767,8 @@ static struct snd_soc_dai_link msm_wsa_wsa2_cdc_dma_be_dai_links[] = {
 		/* .no_host_mode = SND_SOC_DAI_LINK_NO_HOST, */
 		SND_SOC_DAILINK_REG(wsa_wsa2_vi_feedback),
 	},
+#endif
+/* ASUS_BSP: Remove WSA vi_feedback --- */
 };
 
 static struct snd_soc_dai_link msm_rx_tx_cdc_dma_be_dai_links[] = {
@@ -1152,6 +1178,45 @@ static struct snd_soc_dai_link msm_waipio_dai_links[
 			ARRAY_SIZE(msm_mi2s_dai_links) +
 			ARRAY_SIZE(msm_tdm_dai_links)];
 
+#if defined ASUS_AI2201_PROJECT
+static const char * const cs35l45_i2c_name_30h[16] = {
+	"cs35l45.0-0030",
+	"cs35l45.1-0030",
+	"cs35l45.2-0030",
+	"cs35l45.3-0030",
+	"cs35l45.4-0030",
+	"cs35l45.5-0030",
+	"cs35l45.6-0030",
+	"cs35l45.7-0030",
+	"cs35l45.8-0030",
+	"cs35l45.9-0030",
+	"cs35l45.10-0030",
+	"cs35l45.11-0030",
+	"cs35l45.12-0030",
+	"cs35l45.13-0030",
+	"cs35l45.14-0030",
+	"cs35l45.15-0030"
+};
+
+static const char * const cs35l45_i2c_name_31h[16] = {
+        "cs35l45.0-0031",
+        "cs35l45.1-0031",
+        "cs35l45.2-0031",
+        "cs35l45.3-0031",
+        "cs35l45.4-0031",
+        "cs35l45.5-0031",
+        "cs35l45.6-0031",
+        "cs35l45.7-0031",
+        "cs35l45.8-0031",
+        "cs35l45.9-0031",
+        "cs35l45.10-0031",
+        "cs35l45.11-0031",
+        "cs35l45.12-0031",
+        "cs35l45.13-0031",
+        "cs35l45.14-0031",
+        "cs35l45.15-0031"
+};
+#endif
 
 static int msm_populate_dai_link_component_of_node(
 					struct snd_soc_card *card)
@@ -1162,6 +1227,17 @@ static int msm_populate_dai_link_component_of_node(
 	struct device_node *np = NULL;
 	int codecs_enabled = 0;
 	struct snd_soc_dai_link_component *codecs_comp = NULL;
+#if defined ASUS_AI2201_PROJECT
+        int i2c_nr = -1;
+	bool cs35l45_i2c_changed = false;
+
+	if (!cs35l45_i2c_get_adapter_nr(&i2c_nr)) {
+		if (i2c_nr != 7) {
+			cs35l45_i2c_changed = true;
+			printk("%s: cs35l45_i2c_get_adapter_nr cs35l45_i2c_changed\n",  __func__);
+		}
+	}
+#endif
 
 	if (!cdev) {
 		dev_err(cdev, "%s: Sound card device memory NULL\n", __func__);
@@ -1175,6 +1251,19 @@ static int msm_populate_dai_link_component_of_node(
 		/* populate codec_of_node for snd card dai links */
 		if (dai_link[i].num_codecs > 0) {
 			for (j = 0; j < dai_link[i].num_codecs; j++) {
+#if defined ASUS_AI2201_PROJECT
+				if (cs35l45_i2c_changed && dai_link[i].codecs[j].name != NULL) {
+					if (!strncmp(dai_link[i].codecs[j].name, "cs35l45.7-0030", 64)) {
+						dai_link[i].codecs[j].name = cs35l45_i2c_name_30h[i2c_nr];
+						printk("%s: rename dai_link[%d].codecs[%d].name = %s, dai_name = %s\n",
+							__func__, i, j, dai_link[i].codecs[j].name, dai_link[i].codecs[j].dai_name);
+					} else if (!strncmp(dai_link[i].codecs[j].name, "cs35l45.7-0031", 64)) {
+						dai_link[i].codecs[j].name = cs35l45_i2c_name_31h[i2c_nr];
+						printk("%s: rename dai_link[%d].codecs[%d].name = %s, dai_name = %s\n",
+							__func__, i, j, dai_link[i].codecs[j].name, dai_link[i].codecs[j].dai_name);
+					}
+				}
+#endif
 				if (dai_link[i].codecs[j].of_node ||
 						!dai_link[i].codecs[j].name)
 					continue;
@@ -1922,6 +2011,43 @@ void msm_common_set_pdata(struct snd_soc_card *card,
 	pdata->common_pdata = common_pdata;
 }
 
+//ASUS_BSP +++   add for codec_status
+#ifdef ASUS_FTM_BUILD
+#ifdef ASUS_AI2202_PROJECT
+static ssize_t audio_codec_proc_read(struct file *filp, char __user *buff, size_t len, loff_t *off)
+{
+       char messages[256];
+       pr_err("[Audio] audio_codec_proc_read, codec_status is %d\n", codec_status);
+       if(*off)
+               return 0;
+       memset(messages, 0, sizeof(messages));
+       if (len > 256)
+               len = 256;
+
+       sprintf(messages, "%d\n", codec_status);
+    if (copy_to_user(buff, messages, sizeof(messages)))
+               return -EFAULT;
+       (*off)++;
+       return len;
+}
+
+static struct proc_ops proc_fops=
+{
+    .proc_read=audio_codec_proc_read,
+};
+
+static void create_audio_codec_proc_file(void)
+{
+    pr_err("[Audio] create_audio_codec_proc_file\n");
+    audio_codec_proc_file = proc_create(AUDIO_CODEC_PROC_FILE, 0444, NULL, &proc_fops);
+    if (!audio_codec_proc_file){
+        pr_err("[Audio] create_audio_codec_proc_file failed!\n");
+    }
+}
+#endif
+#endif
+//ASUS_BSP ---   add for codec_status
+
 static int msm_asoc_parse_soundcard_name(struct platform_device *pdev,
 					 struct snd_soc_card *card)
 {
@@ -2021,6 +2147,17 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		goto err;
 	}
 
+//ASUS_BSP +++   add for codec_status
+#ifdef ASUS_FTM_BUILD
+#ifdef ASUS_AI2202_PROJECT
+    if(!codec_num){
+        codec_num++;
+        create_audio_codec_proc_file();
+    }
+#endif
+#endif
+//ASUS_BSP ---   add for codec_status
+
 	ret = snd_soc_of_parse_audio_routing(card, "qcom,audio-routing");
 	if (ret) {
 		dev_err(&pdev->dev, "%s: parse audio routing failed, err:%d\n",
@@ -2102,6 +2239,16 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 
 	is_initial_boot = true;
 
+//ASUS_BSP +++   add for codec_status
+#ifdef ASUS_FTM_BUILD
+#ifdef ASUS_AI2202_PROJECT
+	if(!codec_status){
+		codec_status=1;
+	}
+#endif
+#endif
+//ASUS_BSP ---   add for codec_status
+
 	/* change card status to ONLINE */
 	dev_dbg(&pdev->dev, "%s: setting snd_card to ONLINE\n", __func__);
 	snd_card_set_card_status(SND_CARD_STATUS_ONLINE);
@@ -2109,6 +2256,15 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	return 0;
 err:
 	devm_kfree(&pdev->dev, pdata);
+
+//ASUS_BSP +++  add for codec_status
+#ifdef ASUS_FTM_BUILD
+#ifdef ASUS_AI2202_PROJECT
+    codec_status=0;
+#endif
+#endif
+//ASUS_BSP ---   add for codec_status
+
 	return ret;
 }
 

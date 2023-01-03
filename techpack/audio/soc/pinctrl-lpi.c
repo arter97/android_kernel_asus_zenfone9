@@ -664,6 +664,12 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	struct clk *lpass_audio_hw_vote = NULL;
 
 	if (!audio_notifier_probe_status()) {
+		pr_err("%s: Audio notifier probe not completed, defer lpi pinctrl probe\n",
+					__func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!audio_notifier_probe_status()) {
 		pr_err("%s: Audio notify probe not completed, defer lpi pinctrl probe\n",
 					__func__);
 		return -EPROBE_DEFER;

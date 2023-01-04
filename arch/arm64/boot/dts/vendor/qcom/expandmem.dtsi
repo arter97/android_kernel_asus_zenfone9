@@ -1,0 +1,7 @@
+//+++ asus_bsp for expandmem
+
+&soc{
+   expandmem: expandmem {
+		compatible = "asus,expandmem";
+   };
+};

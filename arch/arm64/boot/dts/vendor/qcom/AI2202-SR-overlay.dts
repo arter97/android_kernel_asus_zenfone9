@@ -1,0 +1,335 @@
+/dts-v1/;
+/plugin/;
+
+
+#include "AI2202-EVB-overlay.dts"
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 SR";
+	compatible = "qcom,waipio-mtp", "qcom,waipio", "qcom,mtp";
+	qcom,msm-id = <457 0x10000>, <482 0x10000>, <457 0x20000>, <482 0x20000>;
+	qcom,board-id = <45 0>;
+};
+/*   ====================================
+*    overlay for display - start
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for display - end
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for touch - start
+*    ====================================
+*/
+// Fingerprint_BSP Goodix +++
+&soc {
+	goodix_gf3626@0 {
+		status = "ok";
+	};
+};
+// Fingerprint_BSP Goodix ---
+
+/*   ====================================
+*    overlay for touch - end
+*    ====================================
+*/
+
+/*    ====================================
+ *    overlay for waipio.dtsi - start
+ *    ====================================
+ */
+	//Hall_sensor +++
+	//use gpio92 for interrupt pin
+	&sdhc_2 {
+		status = "disable";
+	};
+
+	&soc {
+		hall_sensor {
+			compatible = "qcom,hall";
+			pinctrl-names = "hall_gpio_high","hall_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall_active>;
+			pinctrl-1 = <&gpio_hall_suspend>;
+			qcom,hall-gpio = <&tlmm 92 0x0>;
+		};
+
+		hall2_sensor {
+			compatible = "qcom,hall_2nd";
+			pinctrl-names = "hall2_gpio_high","hall2_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall2_active>;
+			pinctrl-1 = <&gpio_hall2_suspend>;
+			qcom,hall2-gpio = <&tlmm 88 0x0>;
+		};
+
+		hall3_sensor {
+			compatible = "qcom,hall_3nd";
+			pinctrl-names = "hall3_gpio_high","hall3_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall3_active>;
+			pinctrl-1 = <&gpio_hall3_suspend>;
+			qcom,hall3-gpio = <&tlmm 172 0x0>;
+		};
+
+		hall1_sensor {
+			compatible = "qcom,hall_1nd";
+			pinctrl-names = "hall1_gpio_high","hall1_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall1_active>;
+			pinctrl-1 = <&gpio_hall1_suspend>;
+			qcom,hall1-gpio = <&tlmm 174 0x0>;
+		};
+	};
+	//Hall_sensor ---
+/*    ====================================
+ *    overlay for waipio.dtsi - end
+ *    ====================================
+ */
+
+
+
+/*    ====================================
+ *    overlay for waipio-mtp.dtsi - start
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-mtp.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-pinctrl.dtsi - start
+ *    ====================================
+ */
+&tlmm{
+	//Hall_sensor +++
+	hall_int_pin {
+		gpio_hall_active: gpio_hall_active {
+			mux {
+				pins = "gpio92";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio92";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall_suspend: gpio_hall_suspend {
+			mux {
+				pins = "gpio92";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio92";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall2_active: gpio_hall2_active {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall2_suspend: gpio_hall2_suspend {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall3_active: gpio_hall3_active {
+			mux {
+				pins = "gpio172";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio172";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall3_suspend: gpio_hall3_suspend {
+			mux {
+				pins = "gpio172";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio172";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall1_active: gpio_hall1_active {
+			mux {
+				pins = "gpio174";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio174";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall1_suspend: gpio_hall1_suspend {
+			mux {
+				pins = "gpio174";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio174";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+	};
+	//Hall_sensor ---
+};
+
+/*    ====================================
+ *    overlay for waipio-pinctrl.dtsi - end
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-qupv3.dtsi - start
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-qupv3.dtsi - end
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-pmic-overlay.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-pmic-overlay.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for pm8450.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for pm8450.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-regulators.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-regulators.dtsi - end
+ *    ====================================
+ */
+
+
+
+/*    ====================================
+ *    overlay for waipio-audio.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-audio.dtsi - end
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-audio-overlay.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-audio-overlay.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-thermal-overlay.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-thermal-overlay.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-gpu.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for waipio-gpu.dtsi - end
+ *    ====================================
+ */
+
+
+/*    ====================================
+ *    overlay for waipio-usb.dtsi - start
+ *    ====================================
+ */
+
+&usb2_phy0 {
+	qcom,param-override-seq =
+		<0x67 0x6c
+		0x0e 0x70>;
+};
+
+/*    ====================================
+ *    overlay for waipio-usb.dtsi - end
+ *    ====================================
+ */

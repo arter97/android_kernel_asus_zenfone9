@@ -1,0 +1,829 @@
+/dts-v1/;
+/plugin/;
+
+#include "cape-mtp.dtsi"
+#include "waipio-pm8010-spmi.dtsi"
+#include "expandmem.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 8475 EVB ER1";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <531 0x10000>, <540 0x10000>;
+	qcom,board-id = <36 0>;
+};
+&aliases {
+	i2c0 = "/soc/i2c@990000";
+};
+
+/*   ====================================
+*    overlay for display - start
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for display - end
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for touch - start
+*    ====================================
+*/
+&qupv3_se4_spi {
+	status = "disable";
+};
+
+&qupv3_se4_i2c {
+	status = "ok";
+
+	st_fts@49 {
+		status = "disable";
+	};
+
+	focaltech@38{
+		compatible = "focaltech,fts";
+		reg = <0x38>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <21 0x2008>;
+		focaltech,reset-gpio = <&tlmm 20 0x01>;
+		focaltech,irq-gpio = <&tlmm 21 0x2008>;
+		focaltech,vddio = <&tlmm 105 0x00>;
+		focaltech,max-touch-number = <10>;
+		focaltech,display-coords = <0 0 1080 2400>;
+		focaltech,touch-type = "primary";
+
+		vdd-supply = <&L3C>;
+		vcc_i2c-supply = <&L2C>;
+
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend","pmx_ts_release";
+		pinctrl-0 = <&ts_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+		pinctrl-2 = <&ts_release>;
+	};
+};
+
+&apps_rsc {
+	rpmh-regulator-ldoc2 {
+		L2C: pm8350c_l2: regulator-pm8350c-l2 {
+			//regulator-always-on;	/* ASUS BSP Always Enable 1.8V for I2C */
+		};
+	};
+	rpmh-regulator-ldoc3 {
+		L3C: pm8350c_l3: regulator-pm8350c-l3 {
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3008000>;
+			qcom,init-voltage = <3008000>;
+		};
+	};
+};
+
+&soc {
+
+	status = "ok";
+	spi-max-frequency = <10000000>;
+	// Disable qcom default FP setting
+	qcom,qbt_handler {
+		status = "disable";
+	};
+
+	goodix_gf3626@0 {
+		compatible = "goodix,fingerprint";
+
+		fp-gpio-irq = <&tlmm 40 0x00>;
+		fp-gpio-reset = <&tlmm 71 0x00>;
+
+		vcc-supply = <&pm8010j_l3>;
+		pinctrl-names = "fp_default";
+		pinctrl-0 = <&fp_irq_default &fp_reset_default>;
+		status = "ok";
+	};
+};
+
+&apps_rsc {
+	rpmh-regulator-ldoj3 {
+		//L3J: pm8010j_l3: regulator-pm8010j-l3 {
+		regulator-pm8010j-l3 {
+			regulator-min-microvolt = <3000000>;
+			regulator-max-microvolt = <3000000>;
+			qcom,init-voltage = <3000000>;
+		};
+	};
+};
+
+&tlmm {
+	fp_default {
+		fp_irq_default: fp_irq_default {
+			mux {
+				pins = "gpio40";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio40";
+				drive-strength = <8>;
+				bias-disable;
+			};
+		};
+
+		fp_reset_default: fp_reset_default {
+			mux {
+				pins = "gpio71";
+				drive-strength = <8>;
+				bias-pull-down;
+			};
+		};
+	};
+};
+
+/*   ====================================
+*    overlay for touch - end
+*    ====================================
+*/
+
+/*    ====================================
+ *    overlay for cape.dtsi - start
+ *    ====================================
+ */
+
+//disable USB1 SSPHY +++
+&usb0 {
+	dwc3@a600000 {
+		usb-phy = <&eusb2_phy0>, <&usb_nop_phy>;
+		maximum-speed = "high-speed";
+	};
+};
+
+&usb_qmp_dp_phy {
+	status = "disabled";
+};
+//disable USB1 SSPHY ---
+
+	//Hall_sensor +++
+	//use gpio92 for interrupt pin
+	&sdhc_2 {
+		status = "disable";
+	};
+
+	&soc {
+		hall_sensor {
+			compatible = "qcom,hall";
+			pinctrl-names = "hall_gpio_high","hall_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall_active>;
+			pinctrl-1 = <&gpio_hall_suspend>;
+			qcom,hall-gpio = <&tlmm 92 0x0>;
+		};
+
+		hall2_sensor {
+			compatible = "qcom,hall_2nd";
+			pinctrl-names = "hall2_gpio_high","hall2_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall2_active>;
+			pinctrl-1 = <&gpio_hall2_suspend>;
+			qcom,hall2-gpio = <&tlmm 88 0x0>;
+		};
+
+		hall3_sensor {
+			compatible = "qcom,hall_3nd";
+			pinctrl-names = "hall3_gpio_high","hall3_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall3_active>;
+			pinctrl-1 = <&gpio_hall3_suspend>;
+			qcom,hall3-gpio = <&tlmm 172 0x0>;
+		};
+
+		hall1_sensor {
+			compatible = "qcom,hall_1nd";
+			pinctrl-names = "hall1_gpio_high","hall1_gpio_low";
+			//vdd-supply = <&L8C>;
+			pinctrl-0 = <&gpio_hall1_active>;
+			pinctrl-1 = <&gpio_hall1_suspend>;
+			qcom,hall1-gpio = <&tlmm 174 0x0>;
+		};
+	};
+	//Hall_sensor ---
+
+/*    ====================================
+ *    overlay for cape.dtsi - end
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for cape-mtp.dtsi - start
+ *    ====================================
+ */
+
+// ASUS_BSP Gary_Liao NFC +++
+&qupv3_se8_spi {
+	status = "ok";
+	p61@0 {
+		status = "ok";
+
+		compatible = "nxp,p61";
+		reg = <0x0>;
+		spi-max-frequency = <7000000>;
+	};
+};
+// ASUS_BSP Gary_Liao NFC ---
+
+&qupv3_se9_i2c{
+	status = "ok";
+	qcom,clk-freq-out = <400000>;
+
+	// ASUS_BSP Gary_Liao NFC +++
+	nq@28 {
+		compatible = "nxp,pn544";
+		reg = <0x29>;
+		nxp,pn544-irq = <&tlmm 46 0x00>;
+		nxp,pn544-ven = <&tlmm 34 0x00>;
+		nxp,pn544-fw-dwnld = <&tlmm 45 0x00>;
+		nxp,pn544-ese-pwr =  <&tlmm 187 0x00>;
+		qcom,sn-clkreq = <&tlmm 35 0x00>;
+		qcom,sn-vdd-1p8-supply = <&S10B>;
+		qcom,sn-vdd-1p8-voltage = <1800000 1800000>;
+		qcom,sn-vdd-1p8-current = <157000>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <46 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active &nfc_enable_active
+				&nfc_clk_req_active &nfc_fwdl_active>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend
+				&nfc_clk_req_suspend &nfc_fwdl_suspend>;
+	};
+	// ASUS_BSP Gary_Liao NFC ---
+};
+
+&eud {
+	status = "disabled";
+};
+
+/*    ====================================
+ *    overlay for cape-mtp.dtsi - end
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for cape-pinctrl.dtsi - start
+ *    ====================================
+ */
+
+&tlmm{
+	nfc {
+		nfc_int_active: nfc_int_active {
+			/* active state */
+			mux {
+				/* NFC Read Interrupt */
+				pins = "gpio46";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio46";
+				drive-strength = <2>; /* 2 MA */
+				bias-pull-down;
+			};
+		};
+
+		nfc_int_suspend: nfc_int_suspend {
+			/* sleep state */
+			mux {
+				/* NFC Read Interrupt */
+				pins = "gpio46";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio46";
+				drive-strength = <2>; /* 2 MA */
+				bias-pull-down;
+			};
+		};
+
+		nfc_enable_active: nfc_enable_active {
+			mux {
+				/* Enable, Firmware and Clock request gpios */
+				pins = "gpio34";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio34";
+				drive-strength = <2>; /* 2 MA */
+				bias-disable;
+			};
+		};
+
+		nfc_enable_suspend: nfc_enable_suspend {
+			mux {
+				pins = "gpio34";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio34";
+				drive-strength = <2>; /* 2 MA */
+				bias-disable;
+			};
+		};
+
+		nfc_fwdl_active: nfc_fwdl_active {
+			mux {
+				/* 45: Firmware */
+				pins = "gpio45";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio45";
+				drive-strength = <2>; /* 2 MA */
+				bias-disable;
+			};
+		};
+
+		nfc_fwdl_suspend: nfc_fwdl_suspend {
+			mux {
+				/*45: Firmware */
+				pins = "gpio45";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio45";
+				drive-strength = <2>; /* 2 MA */
+				bias-disable;
+			};
+		};
+
+		nfc_clk_req_active: nfc_clk_req_active {
+			/* active state */
+			mux {
+				/* GPIO 35: NFC CLOCK REQUEST */
+				pins = "gpio35";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio35";
+				drive-strength = <2>; /* 2 MA */
+				bias-pull-up;
+			};
+		};
+
+		nfc_clk_req_suspend: nfc_clk_req_suspend {
+			/* sleep state */
+			mux {
+				/* GPIO 35: NFC CLOCK REQUEST */
+				pins = "gpio35";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio35";
+				drive-strength = <2>; /* 2 MA */
+				bias-disable;
+			};
+		};
+	};
+
+	//Hall_sensor +++
+	hall_int_pin {
+		gpio_hall_active: gpio_hall_active {
+			mux {
+				pins = "gpio92";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio92";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall_suspend: gpio_hall_suspend {
+			mux {
+				pins = "gpio92";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio92";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall2_active: gpio_hall2_active {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall2_suspend: gpio_hall2_suspend {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall3_active: gpio_hall3_active {
+			mux {
+				pins = "gpio172";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio172";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall3_suspend: gpio_hall3_suspend {
+			mux {
+				pins = "gpio172";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio172";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+
+		gpio_hall1_active: gpio_hall1_active {
+			mux {
+				pins = "gpio174";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio174";
+				drive-strength = <2>;
+				bias-pull-up;
+				input-enable;
+			};
+		};
+
+		gpio_hall1_suspend: gpio_hall1_suspend {
+			mux {
+				pins = "gpio174";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio174";
+				drive-strength = <2>;
+				bias-pull-down;
+				input-enable;
+			};
+		};
+	};
+	//Hall_sensor ---
+};
+
+/*    ====================================
+ *    overlay for cape-pinctrl.dtsi - end
+ *    ====================================
+ */
+
+ /*    ====================================
+ *    overlay for cape-pmic-overlay.dtsi - start
+ *    ====================================
+ */
+&pm8350b_haptics {
+	qcom,vmax-mv = <2700>;
+	qcom,lra-period-us = <4878>;
+	status = "ok";
+
+	effect_0 {
+		/* CLICK */
+		qcom,effect-id = <0>;
+		qcom,wf-vmax-mv = <10500>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x110  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x134  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-pattern-preload;
+		qcom,wf-auto-res-disable;
+	};
+	effect_1 {
+		/* DOUBLE_CLICK */
+		qcom,effect-id = <1>;
+		qcom,wf-vmax-mv = <5000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x12f  S_PERIOD_T_LRA  0>,
+					<0x15f  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_2 {
+		/* TICK */
+		qcom,effect-id = <2>;
+		qcom,wf-vmax-mv = <5000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x12f  S_PERIOD_T_LRA  0>,
+					<0x15f  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_3 {
+		/* THUD */
+		qcom,effect-id = <3>;
+		qcom,wf-vmax-mv = <5000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x12f  S_PERIOD_T_LRA  0>,
+					<0x15f  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_4 {
+		/* POP */
+		qcom,effect-id = <4>;
+		qcom,wf-vmax-mv = <5000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x12f  S_PERIOD_T_LRA  0>,
+					<0x15f  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_5 {
+		/* HEAVY CLICK */
+		qcom,effect-id = <5>;
+		qcom,wf-vmax-mv = <5000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA  0>,
+					<0x12f  S_PERIOD_T_LRA  0>,
+					<0x15f  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_6 {
+		/* RINGTONE_1, ID2*/
+		qcom,effect-id = <6>;
+		qcom,wf-vmax-mv = <3500>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x110  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x134  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_7 {
+		/* RINGTONE_2, ID5 */
+		qcom,effect-id = <7>;
+		qcom,wf-vmax-mv = <10500>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA  0>,
+					<0x0ff  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x110  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x134  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_2  0>,
+					<0x101  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x0122 S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_8 {
+		/* RINGTONE_3, ID6-heavy long */
+		qcom,effect-id = <8>;
+		qcom,wf-vmax-mv = <3000>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x0ff  S_PERIOD_T_LRA_X_8  0>,
+					<0x12f  S_PERIOD_T_LRA_X_4  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_9 {
+		/* RINGTONE_4, ID3*/
+		qcom,effect-id = <9>;
+		qcom,wf-vmax-mv = <10500>;
+		qcom,wf-pattern-data =  <0x100  S_PERIOD_T_LRA  0>,
+					<0x100  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+	effect_10 {
+		/* RINGTONE_5, ID5-latter half */
+		qcom,effect-id = <10>;
+		qcom,wf-vmax-mv = <10500>;
+		qcom,wf-pattern-data =  <0x0ff  S_PERIOD_T_LRA_X_2  0>,
+					<0x101  S_PERIOD_T_LRA_DIV_2  0>,
+					<0x0dd  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>,
+					<0x000  S_PERIOD_T_LRA  0>;
+		qcom,wf-pattern-period-us = <4878>;
+		qcom,wf-brake-pattern = /bits/ 8 <0x0 0x0 0x0>;
+		qcom,wf-auto-res-disable;
+	};
+};
+
+ //[+++] ASUS_BSP : Add for battery_charger
+&battery_charger {
+     OTG_LOAD_SWITCH = <&tlmm 84 0x0>;
+};
+
+&battery_charger {
+	io-channels = <&pmk8350_vadc PM8350B_ADC7_AMUX_THM4_100K_PU>;
+	io-channel-names ="pm8350b_amux_thm4";
+};
+//[---] ASUS_BSP : Add for battery_charger
+
+&pm8350_gpios {
+	/delete-node/ pm8350_rear_tof_therm;
+};
+
+&pmr735a_gpios {
+	pmr735a_pa_therm1_no_pull {
+		pmr735a_pa_therm1_no_pull_default: pmr735a_pa_therm1_no_pull_default {
+			pins = "gpio1";
+			bias-disable;
+		};
+	};
+
+	pmr735a_pa_therm2_no_pull {
+		pmr735a_pa_therm2_no_pull_default: pmr735a_pa_therm2_no_pull_default {
+			pins = "gpio2";
+			bias-disable;
+		};
+	};
+};
+
+&pmk8350_vadc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pmr735a_pa_therm1_no_pull_default &pmr735a_pa_therm2_no_pull_default>;
+
+	pmr735a_pa_therm1 {
+		reg = <PMR735A_ADC7_GPIO1_100K_PU>;
+		label = "pmr735a_pa_therm1";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+	pmr735a_pa_therm2 {
+		reg = <PMR735A_ADC7_GPIO2_100K_PU>;
+		label = "pmr735a_pa_therm2";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&pmk8350_adc_tm {
+	io-channels = <&pmk8350_vadc PM8350_ADC7_AMUX_THM1_100K_PU>,
+			<&pmk8350_vadc PM8350_ADC7_AMUX_THM2_100K_PU>,
+			<&pmk8350_vadc PM8350_ADC7_AMUX_THM3_100K_PU>,
+			<&pmk8350_vadc PM8350_ADC7_AMUX_THM4_100K_PU>,
+			<&pmk8350_vadc PM8350B_ADC7_AMUX_THM4_100K_PU>,
+			<&pmk8350_vadc PMK8350_ADC7_AMUX_THM1_100K_PU>,
+			<&pmk8350_vadc PMR735A_ADC7_GPIO1_100K_PU>,
+			<&pmk8350_vadc PMR735A_ADC7_GPIO2_100K_PU>;
+
+	/delete-node/ pm8350_rear_tof_therm;
+	/delete-node/ pm8350b_wl_chg_therm;
+
+	pmr735a_pa_therm1 {
+		reg = <PMR735A_ADC7_GPIO1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pmr735a_pa_therm2 {
+		reg = <PMR735A_ADC7_GPIO2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&thermal_zones {
+	/delete-node/ tof-therm;
+	/delete-node/ wlc-therm;
+
+	pa-therm1 {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-sensors = <&pmk8350_adc_tm PMR735A_ADC7_GPIO1_100K_PU>;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+			active-config1 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	pa-therm2 {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-sensors = <&pmk8350_adc_tm PMR735A_ADC7_GPIO2_100K_PU>;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+			active-config1 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+};
+ /*    ====================================
+ *    overlay for cape-pmic-overlay.dtsi - end
+ *    ====================================
+ */
+
+ /*    ====================================
+ *    overlay for cape-regulators.dtsi - start
+ *    ====================================
+ */
+
+/*    ====================================
+ *    overlay for cape-regulators.dtsi - end
+ *    ====================================
+ */

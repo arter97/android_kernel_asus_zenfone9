@@ -22,6 +22,52 @@ else
 	make "$@" || exit 1
 fi
 
+(
+  # Build dtbo.img
+  rm -f .*.dtbo 2>/dev/null
+  for i in {1..3}; do
+    fdtoverlaymerge -i \
+      arch/arm64/boot/dts/vendor/qcom/AI2202-8475-PR${i}-overlay.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/audio/AI2202-8475-PR${i}-audio-overlay.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/camera/AI2202-8475-PR${i}-camera-overlay.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/display/AI2202-8475-PR${i}-display-overlay.dtbo \
+      -o .$i.dtbo &
+  done
+  wait
+  mkdtimg create dtbo.img --page_size=4096 .*.dtbo
+) &
+
+(
+  # Build vendor_boot.img (with dtb)
+  rm -f .*.dtb 2>/dev/null
+  for i in cape capep cape-v2; do
+    fdtoverlay \
+      -i arch/arm64/boot/dts/vendor/qcom/${i}.dtb \
+      -o .${i}.dtb \
+      arch/arm64/boot/dts/vendor/qcom/audio/cape-audio.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/camera/cape-camera.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/display/cape-sde.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/mmrm/cape-mmrm.dtbo \
+      arch/arm64/boot/dts/vendor/qcom/video/waipio-vidc.dtbo &
+  done
+  wait
+  cat $(ls .*.dtb | sort -V) > .dtb
+  wait
+  mkbootimg.py \
+    --header_version 4 \
+    --pagesize 0x00001000 \
+    --base 0x00000000 \
+    --kernel_offset 0x00008000 \
+    --ramdisk_offset 0x01000000 \
+    --tags_offset 0x00000100 \
+    --dtb_offset 0x0000000001f00000 \
+    --vendor_cmdline 'video=vfb:640x400,bpp=32,memsize=3072000 bootconfig' \
+    --dtb .dtb \
+    --vendor_bootconfig vendor_boot/bootconfig \
+    --ramdisk_type 1 --ramdisk_name '' --vendor_ramdisk_fragment vendor_boot/vendor_ramdisk00 \
+    --vendor_boot vendor_boot.img
+) &
+
 echo "Building new ramdisk"
 #remove previous ramfs files
 rm -rf '$RAMFS_TMP'*
@@ -61,6 +107,7 @@ if [[ $GENERATED_SIZE -gt $PARTITION_SIZE ]]; then
 	exit 1
 fi
 
+wait
 echo "done"
-ls -al boot.img
+ls -al boot.img dtbo.img vendor_boot.img
 echo ""

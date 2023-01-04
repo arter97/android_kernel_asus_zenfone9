@@ -1,0 +1,32 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2201-8450-EVB-camera-overlay.dts"
+#include "ROG6-PreSR-camera-sensor-mtp.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 PreSR";
+	compatible = "qcom,waipio", "qcom,waipiop";
+	qcom,msm-id = <457 0x10000>, <482 0x10000>, <457 0x20000>, <482 0x20000>;
+	qcom,board-id = <40 0>;
+};
+
+&apps_rsc {
+
+	rpmh-regulator-ldoi1 {
+		L1I: pm8010i_l1: regulator-pm8010i-l1 {
+			regulator-min-microvolt = <1150000>;
+			regulator-max-microvolt = <1200000>;
+			qcom,init-voltage = <1200000>;
+		};
+	};
+
+	rpmh-regulator-ldoi3 {
+		L3I: pm8010i_l3: regulator-pm8010i-l3 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+
+};

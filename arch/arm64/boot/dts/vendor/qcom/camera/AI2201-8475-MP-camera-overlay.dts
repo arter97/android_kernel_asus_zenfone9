@@ -1,0 +1,11 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2201-8475-PR2_2-camera-overlay.dts"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 8475 MP";
+	compatible = "qcom,cape", "qcom,capep";
+	qcom,msm-id = <530 0x10000>;
+	qcom,board-id = <71 0>;
+};

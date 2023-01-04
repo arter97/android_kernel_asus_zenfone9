@@ -1,0 +1,13 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2202-8450-EVB-camera-overlay.dts"
+
+#include "AI2202-EVB-PreSR-camera-sensor-mtp.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 SR";
+	compatible = "qcom,waipio", "qcom,waipiop";
+	qcom,msm-id = <457 0x10000>, <482 0x10000>, <457 0x20000>, <482 0x20000>;
+	qcom,board-id = <45 0>;
+};

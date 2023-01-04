@@ -1,0 +1,70 @@
+/dts-v1/;
+/plugin/;
+
+//#include "waipio-camera-sensor-mtp.dts"
+
+#include <dt-bindings/clock/qcom,gcc-waipio.h>
+#include <dt-bindings/clock/qcom,camcc-waipio.h>
+#include <dt-bindings/interconnect/qcom,waipio.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/regulator/qcom,rpmh-regulator-levels.h>
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 EVB1";
+	compatible = "qcom,waipio", "qcom,waipiop";
+	qcom,msm-id = <457 0x10000>, <482 0x10000>, <457 0x20000>, <482 0x20000>;
+	qcom,board-id = <35 0>;
+};
+
+&apps_rsc {
+
+	rpmh-regulator-ldoi5 {
+		compatible = "qcom,rpmh-vrm-regulator";
+		qcom,resource-name = "ldoi5";
+		qcom,regulator-type = "pmic5-ldo";
+		qcom,supported-modes =
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
+		qcom,mode-threshold-currents = <0 10000>;
+		L5I: pm8010i_l5: regulator-pm8010i-l5 {
+			regulator-name = "pm8010i_l5";
+			qcom,set = <RPMH_REGULATOR_SET_ALL>;
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	rpmh-regulator-ldoj4 {
+		L4J: pm8010j_l4: regulator-pm8010j-l4 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+
+	rpmh-regulator-ldoj7 {
+		L7J: pm8010j_l7: regulator-pm8010j-l7 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+
+	rpmh-regulator-ldoi7 {
+		L7I: pm8010i_l7: regulator-pm8010i-l7 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+
+	rpmh-regulator-ldoi3 {
+		L3I: pm8010i_l3: regulator-pm8010i-l3 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+};

@@ -1,0 +1,31 @@
+/dts-v1/;
+/plugin/;
+
+#include "cape-camera-sensor-mtp.dts"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 8475 EVB_ER1";
+	compatible = "qcom,cape", "qcom,capep";
+	qcom,msm-id = <530 0x10000>;
+	qcom,board-id = <52 0>;
+};
+
+&apps_rsc {
+
+	rpmh-regulator-ldoi1 {
+		L1I: pm8010i_l1: regulator-pm8010i-l1 {
+			regulator-min-microvolt = <1150000>;
+			regulator-max-microvolt = <1200000>;
+			qcom,init-voltage = <1200000>;
+		};
+	};
+
+	rpmh-regulator-ldoi3 {
+		L3I: pm8010i_l3: regulator-pm8010i-l3 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			qcom,init-voltage = <2800000>;
+		};
+	};
+
+};

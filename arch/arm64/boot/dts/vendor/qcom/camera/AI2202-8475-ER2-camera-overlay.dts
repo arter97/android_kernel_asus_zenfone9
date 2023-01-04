@@ -1,0 +1,10 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2202-8475-EVB_SR-camera-overlay.dts"
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 8475 ER2";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <531 0x10000>, <540 0x10000>;
+	qcom,board-id = <46 0>;
+};

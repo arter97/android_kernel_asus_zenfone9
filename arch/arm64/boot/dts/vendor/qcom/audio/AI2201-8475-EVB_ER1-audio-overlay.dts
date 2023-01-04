@@ -1,0 +1,10 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2201-8475-EVB_ER1-audio-overlay.dtsi"
+ / {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 8475 EVB ER1";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <540 0x10000>;
+	qcom,board-id = <52 0>;
+};

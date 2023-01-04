@@ -1,0 +1,231 @@
+/dts-v1/;
+/plugin/;
+
+#include "cape-sde-display-mtp.dtsi"
+// ASUS Display BSP +++
+#include "dsi-panel-ams678-fhd-plus-dsc-cmd.dtsi"
+#include "dsi-panel-ams678-er2-fhd-plus-dsc-cmd.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 8475 EVB_ER1";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <531 0x10000>, <540 0x10000>;
+	qcom,board-id = <52 0>;
+};
+
+/*   ====================================
+*    overlay for display - start
+*    ====================================
+*/
+
+&sde_dsi {
+	qcom,dsi-default-panel = <&dsi_ams678_er2_fhd_plus_dsc_cmd>;
+};
+
+&soc {
+	dsi_panel_pwr_supply_vci_no_labibb: dsi_panel_pwr_supply_vci_no_labibb {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		qcom,panel-supply-entry@0 {
+			reg = <0>;
+			qcom,supply-name = "vddio";
+			qcom,supply-min-voltage = <1800000>;
+			qcom,supply-max-voltage = <1800000>;
+			qcom,supply-enable-load = <60700>;
+			qcom,supply-disable-load = <80>;
+		};
+
+		qcom,panel-supply-entry@1 {
+			reg = <1>;
+			qcom,supply-name = "vci";
+			qcom,supply-min-voltage = <3000000>;
+			qcom,supply-max-voltage = <3000000>;
+			qcom,supply-enable-load = <10000>;
+			qcom,supply-disable-load = <0>;
+			qcom,supply-post-on-sleep = <10>;
+			qcom,supply-pre-off-sleep = <10>;
+		};
+	};
+};
+
+&display_panel_avdd {
+	status = "disabled";
+};
+
+&dsi_ams678_fhd_plus_dsc_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_vci_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <1023>;
+
+	qcom,platform-te-gpio = <&tlmm 86 0>; // default is 86
+	qcom,platform-reset-gpio = <&tlmm 0 0>;
+	qcom,platform-px-reset-gpio = <&tlmm 104 0>;
+	qcom,platform-px-wakeup-gpio = <&tlmm 109 0>;
+	qcom,platform-px-ready-gpio = <&tlmm 90 0>;
+	qcom,platform-err-fg-gpio = <&tlmm 83 0>;
+	qcom,panel-te-source = <0>;
+
+	// enable esd check
+	qcom,esd-check-enabled;
+	qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+
+	qcom,dsi-panel-gpio-address = <0x0F100000 0x1000>;
+	qcom,dsi-panel-gpio-pins = <0 86>;
+	qcom,dsi-panel-gpio-names = "reset-gpio", "platform-te-gpio";
+
+	qcom,ulps-enabled;
+	qcom,dsi-select-clocks = "pll_byte_clk0", "pll_dsi_clk0";
+	qcom,mdss-dsi-display-timings {
+		timing@0 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@1 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+	};
+};
+
+&dsi_ams678_er2_fhd_plus_dsc_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_vci_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <1023>;
+
+	qcom,platform-te-gpio = <&tlmm 86 0>; // default is 86
+	qcom,platform-reset-gpio = <&tlmm 0 0>;
+	qcom,platform-px-reset-gpio = <&tlmm 104 0>;
+	qcom,platform-px-wakeup-gpio = <&tlmm 109 0>;
+	qcom,platform-px-ready-gpio = <&tlmm 90 0>;
+	qcom,platform-err-fg-gpio = <&tlmm 83 0>;
+	qcom,panel-te-source = <0>;
+
+	// enable esd check
+	qcom,esd-check-enabled;
+	qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+
+	qcom,dsi-panel-gpio-address = <0x0F100000 0x1000>;
+	qcom,dsi-panel-gpio-pins = <0 86>;
+	qcom,dsi-panel-gpio-names = "reset-gpio", "platform-te-gpio";
+
+	qcom,ulps-enabled;
+	qcom,dsi-select-clocks = "pll_byte_clk0", "pll_dsi_clk0";
+	qcom,mdss-dsi-display-timings {
+		timing@0 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@1 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@2 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@3 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@4 {
+			qcom,mdss-dsi-panel-phy-timings = [00 1E 08 07 18 16 08
+				08 08 02 04 00 1A 3C];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+	};
+};
+
+&qupv3_se4_i2c {
+	focaltech@38 {
+		panel = <&dsi_ams678_er2_fhd_plus_dsc_cmd>;
+	};
+};
+
+&spmi_bus {
+	qcom,pm8350b@3 {
+		qcom,amoled-ecm@f900 {
+			display-panels = <&dsi_ams678_er2_fhd_plus_dsc_cmd>;
+		};
+	};
+};
+
+//[+++] ASUS_BSP : Add for charger
+&battery_charger {
+	panel = <&dsi_ams678_er2_fhd_plus_dsc_cmd>;
+};
+//[---] ASUS_BSP : Add for charger
+
+// DP porting
+&sde_dp {
+	/delete-property/ qcom,dp-aux-switch;
+	qcom,dp-gpio-aux-switch;
+	qcom,aux-en-gpio = <&tlmm 128 0>;
+	qcom,aux-sel-gpio = <&pm8350c_gpios 1 0x0>;
+
+	pinctrl-names = "mdss_dp_active", "mdss_dp_sleep";
+	pinctrl-0 = <&sde_dp_aux_active &aux_sel_default>;
+	pinctrl-1 = <&sde_dp_aux_suspend &aux_sel_default>;
+};
+
+&pm8350c_gpios {
+	gpio1_aux_sel {
+		aux_sel_default:  aux_sel_default{
+			pins = "gpio1";
+			function = "normal";
+			bias-disable;
+			output-low;
+			power-source = <0>;
+		};
+	};
+};
+
+&tlmm {
+	sde_dp_aux_active: sde_dp_aux_active {
+		mux {
+			pins = "gpio128";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio128";
+			bias-disable = <0>; /* no pull */
+			drive-strength = <8>;
+		};
+	};
+
+	sde_dp_aux_suspend: sde_dp_aux_suspend {
+		mux {
+			pins = "gpio128";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio128";
+			bias-pull-down;
+			drive-strength = <2>;
+		};
+	};
+};
+
+/*   ====================================
+*    overlay for display - end
+*    ====================================
+*/

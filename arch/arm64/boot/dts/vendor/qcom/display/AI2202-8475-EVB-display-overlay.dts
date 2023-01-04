@@ -1,0 +1,132 @@
+/dts-v1/;
+/plugin/;
+
+#include "cape-sde-display-mtp.dtsi"
+#include "dsi-panel-davinci-samsung-fhd-cmd.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 8475 EVB ER1";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <531 0x10000>, <540 0x10000>;
+	qcom,board-id = <36 0>;
+};
+
+&sde_dsi {
+	qcom,dsi-default-panel = <&dsi_samsung_fhd_cmd>;
+};
+
+&soc {
+	dsi_panel_pwr_supply_vci_no_labibb: dsi_panel_pwr_supply_vci_no_labibb {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		qcom,panel-supply-entry@0 {
+			reg = <0>;
+			qcom,supply-name = "vddio";
+			qcom,supply-min-voltage = <1800000>;
+			qcom,supply-max-voltage = <1800000>;
+			qcom,supply-enable-load = <200000>;
+			qcom,supply-disable-load = <80>;
+			qcom,supply-post-on-sleep = <20>;
+		};
+
+		qcom,panel-supply-entry@1 {
+			reg = <1>;
+			qcom,supply-name = "vci";
+			qcom,supply-min-voltage = <3000000>;
+			qcom,supply-max-voltage = <3000000>;
+			qcom,supply-enable-load = <2000>;
+			qcom,supply-disable-load = <0>;
+			qcom,supply-post-on-sleep = <10>;
+		};
+	};
+};
+
+&dsi_samsung_fhd_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_vci_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <1023>;
+	qcom,mdss-brightness-max-level = <1023>;
+
+	qcom,platform-te-gpio = <&tlmm 86 0>; // default is 86
+	qcom,panel-te-source = <0>;
+	qcom,platform-reset-gpio = <&tlmm 0 0>;// default is 0
+
+	qcom,ulps-enabled;
+	qcom,dsi-select-clocks = "pll_byte_clk0", "pll_dsi_clk0";
+
+	qcom,mdss-dsi-bl-inverted-dbv;
+
+	qcom,mdss-dsi-display-timings {
+		timing@0 {
+			qcom,mdss-dsi-panel-phy-timings = [00 13 04 04 13 1F 04
+				04 04 02 04 00 10 09];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@1 {
+			qcom,mdss-dsi-panel-phy-timings = [00 13 04 04 13 1F 04
+				04 04 02 04 00 10 09];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+		timing@2 {
+			qcom,mdss-dsi-panel-phy-timings = [00 13 04 04 13 1F 04
+				04 04 02 04 00 10 09];
+			qcom,display-topology = <2 2 1>;
+			qcom,default-topology-index = <0>;
+		};
+	};
+};
+
+&qupv3_se4_i2c {
+	focaltech@38 {
+		panel = <&dsi_samsung_fhd_cmd>;
+	};
+};
+
+&soc {
+	goodix_gf3626@0 {
+		panel = <&dsi_samsung_fhd_cmd>;
+	};
+};
+
+&battery_charger {
+       panel = <&dsi_samsung_fhd_cmd>;
+};
+
+&soc {
+	hall_sensor {
+	       panel = <&dsi_samsung_fhd_cmd>;
+	};
+
+	hall2_sensor {
+	       panel = <&dsi_samsung_fhd_cmd>;
+	};
+};
+
+&sde_dsi1 {
+	status = "disabled";
+};
+
+&sde_dp {
+	status = "disabled";
+};
+
+&mdss_mdp {
+	connectors = <&sde_dsi &smmu_sde_unsec &smmu_sde_sec &sde_wb &sde_rscc>;
+};
+
+&mdss_mdp {
+	qcom,sde-mixer-display-pref = "primary", "none", "none",
+				"none", "none", "none";
+};
+
+&spmi_bus {
+	qcom,pm8350b@3 {
+		qcom,amoled-ecm@f900 {
+			display-panels = <&dsi_samsung_fhd_cmd>;
+		};
+	};
+};

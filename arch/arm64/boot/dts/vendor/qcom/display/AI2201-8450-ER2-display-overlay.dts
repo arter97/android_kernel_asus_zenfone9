@@ -1,0 +1,21 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2201-8450-ER1-display-overlay.dts"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2201 8450 ER2";
+	compatible = "qcom,waipio-mtp", "qcom,waipio", "qcom,mtp";
+	qcom,msm-id = <457 0x10000>, <482 0x10000>, <457 0x20000>, <482 0x20000>;
+	qcom,board-id = <51 0>;
+};
+
+/*   ====================================
+*    overlay for display - start
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for display - end
+*    ====================================
+*/

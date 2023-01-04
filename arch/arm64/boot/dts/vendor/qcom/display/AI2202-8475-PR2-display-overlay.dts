@@ -1,0 +1,20 @@
+/dts-v1/;
+/plugin/;
+
+#include "AI2202-8475-PR1-display-overlay.dts"
+
+/ {
+	model = "Qualcomm Technologies, Inc. ASUS AI2202 8475 PR2";
+	compatible = "qcom,cape-mtp", "qcom,cape", "qcom,mtp";
+	qcom,msm-id = <530 0x10000>, <531 0x10000>, <540 0x10000>;
+	qcom,board-id = <66 0>;
+};
+/*   ====================================
+*    overlay for display - start
+*    ====================================
+*/
+
+/*   ====================================
+*    overlay for display - end
+*    ====================================
+*/

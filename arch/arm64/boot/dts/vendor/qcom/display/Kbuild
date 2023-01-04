@@ -1,0 +1,98 @@
+dtbo-$(CONFIG_ARCH_NEO) += neo-sde.dtbo \
+		neo-sde-display-idp-overlay.dtbo
+
+ifneq ($(CONFIG_ARCH_QTI_VM), y)
+
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+$(warning build display dtbo for AI2201 8450 ...)
+dtbo-$(CONFIG_ARCH_WAIPIO) += waipio-sde.dtbo \
+		waipio-sde-display-mtp-overlay.dtbo \
+		AI2201-8450-EVB-display-overlay.dtbo \
+		AI2201-8450-PreSR-display-overlay.dtbo \
+		AI2201-8450-SR1-display-overlay.dtbo \
+		AI2201-8450-SR2-display-overlay.dtbo \
+		AI2201-8450-ER1-display-overlay.dtbo \
+		AI2201-8450-ER2-display-overlay.dtbo \
+		AI2201-8450-PR-display-overlay.dtbo \
+		AI2201-8450-MP-display-overlay.dtbo
+
+else ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+$(warning build display dtbo for AI2202...)
+dtbo-$(CONFIG_ARCH_WAIPIO) += waipio-sde.dtbo \
+		waipio-sde-display-mtp-overlay.dtbo \
+		AI2202-EVB-display-overlay.dtbo \
+		AI2202-SR-display-overlay.dtbo \
+		AI2202-SR2-display-overlay.dtbo \
+		AI2202-ER-display-overlay.dtbo \
+		AI2202-ER2-2-display-overlay.dtbo
+
+else
+dtbo-$(CONFIG_ARCH_WAIPIO) += waipio-sde.dtbo \
+		waipio-sde-display-mtp-overlay.dtbo \
+		waipio-sde-display-cphy-mtp-overlay.dtbo \
+		waipio-sde-display-cdp-overlay.dtbo \
+		waipio-sde-display-qrd-overlay.dtbo \
+		waipio-sde-display-hdk-overlay.dtbo \
+		waipio-sde-display-waipio-lemur-cdp-overlay.dtbo \
+		waipio-sde-display-waipio-lemur-mtp-overlay.dtbo \
+		waipio-sde-display-rumi-overlay.dtbo
+endif
+else
+dtbo-$(CONFIG_ARCH_WAIPIO) += trustedvm-waipio-sde-display-mtp-overlay.dtbo \
+		trustedvm-waipio-sde-display-cdp-overlay.dtbo \
+		trustedvm-waipio-sde-display-rumi-overlay.dtbo \
+		trustedvm-waipio-sde-display-qrd-overlay.dtbo
+endif
+
+ifneq ($(CONFIG_ARCH_QTI_VM), y)
+ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
+$(warning build display dtbo for AI2201 8475 ...)
+dtbo-$(CONFIG_ARCH_CAPE) += cape-sde.dtbo \
+		cape-sde-display-mtp-overlay.dtbo \
+        AI2201-8475-EVB_ER1-display-overlay.dtbo \
+		AI2201-8475-ER2-display-overlay.dtbo \
+		AI2201-8475-PR-display-overlay.dtbo \
+		AI2201-8475-PR2-display-overlay.dtbo \
+		AI2201-8475-PR2_2-display-overlay.dtbo \
+		AI2201-8475-MP-display-overlay.dtbo
+
+else ifneq (,$(filter AI2202,$(ASUS_BUILD_PROJECT)))
+$(warning build display dtbo for AI2202 8475...)
+dtbo-$(CONFIG_ARCH_CAPE) += cape-sde.dtbo \
+		cape-sde-display-mtp-overlay.dtbo \
+        AI2202-8475-EVB-display-overlay.dtbo \
+		AI2202-8475-ER2-display-overlay.dtbo \
+		AI2202-8475-ER2-2-display-overlay.dtbo \
+		AI2202-8475-PR1-display-overlay.dtbo \
+		AI2202-8475-PR2-display-overlay.dtbo \
+		AI2202-8475-PR3-display-overlay.dtbo
+
+else
+dtbo-$(CONFIG_ARCH_CAPE) += cape-sde.dtbo \
+		cape-sde-display-atp-overlay.dtbo \
+		cape-sde-display-cdp-overlay.dtbo \
+		cape-sde-display-cdp-qhd-overlay.dtbo \
+		cape-sde-display-mtp-overlay.dtbo \
+		cape-sde-display-mtp-120fps-overlay.dtbo \
+		cape-sde-display-mtp-nodisplay-overlay.dtbo \
+		cape-sde-display-qrd-overlay.dtbo
+endif
+else
+dtbo-$(CONFIG_ARCH_CAPE) += trustedvm-cape-sde-display-qrd-overlay.dtbo
+endif
+
+ifneq ($(CONFIG_ARCH_QTI_VM), y)
+dtbo-$(CONFIG_ARCH_DIWALI) += diwali-sde.dtbo \
+		diwali-sde-display-atp-overlay.dtbo \
+		diwali-sde-display-idp-overlay.dtbo \
+		diwali-sde-display-idp-amoled-overlay.dtbo \
+		diwali-sde-display-qrd-overlay.dtbo \
+		diwali-sde-display-rumi-overlay.dtbo
+else
+dtbo-$(CONFIG_ARCH_DIWALI) += trustedvm-diwali-sde-display-idp-overlay.dtbo \
+		trustedvm-diwali-sde-display-qrd-overlay.dtbo
+endif
+
+always-y    := $(dtb-y) $(dtbo-y)
+subdir-y    := $(dts-dirs)
+clean-files    := *.dtb *.dtbo

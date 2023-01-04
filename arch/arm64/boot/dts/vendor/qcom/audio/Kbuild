@@ -1,3 +1,5 @@
+KBUILD_DTC_INCLUDE := $(srctree)/techpack/audio/include
+
 # ASUS_BSP : add for asus audio dtbo +++
 ifneq (,$(filter AI2201,$(ASUS_BUILD_PROJECT)))
 $(warning build audio dtbo for AI2201...)

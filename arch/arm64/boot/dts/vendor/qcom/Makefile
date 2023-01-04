@@ -575,6 +575,8 @@ dtb-$(CONFIG_ARCH_QTI_VM) +=  \
 endif
 endif
 
+dts-dirs += audio camera display mmrm video
+
 always-y	:= $(dtb-y)
 subdir-y	:= $(dts-dirs)
 clean-files	:= *.dtb *.dtbo

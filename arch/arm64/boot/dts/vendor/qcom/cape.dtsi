@@ -433,12 +433,20 @@
 			size = <0x0 0x400000>;
 	};
 
+	/*
+	 * Cape have empty memory available at 0xb0000000 to 0xd0000000.
+	 * Carve ramoops out of that area.
+	 */
 	ramoops_mem: ramoops_region {
-		compatible = "ramoops";
-		alloc-ranges = <0x0 0x00000000 0xffffffff 0xffffffff>;
-		size = <0x0 0x200000>;
-		pmsg-size = <0x200000>;
-		mem-type = <2>;
+		compatible   = "ramoops";
+		reg          = <0x00 0xb0000000 0x00 0x40000>;
+		ecc-size     = <64>;
+		record-size  = <0x40000>;
+		console-size = <0>;
+		ftrace-size  = <0>;
+		pmsg-size    = <0>;
+		max-reason   = <4>;
+		status       = "ok";
 	};
 };
 

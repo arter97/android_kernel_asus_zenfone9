@@ -252,7 +252,6 @@ static inline int ufshcd_config_vreg_hpm(struct ufs_hba *hba,
 static int ufshcd_try_to_abort_task(struct ufs_hba *hba, int tag);
 static int ufshcd_wb_buf_flush_enable(struct ufs_hba *hba);
 static int ufshcd_wb_buf_flush_disable(struct ufs_hba *hba);
-static int ufshcd_wb_ctrl(struct ufs_hba *hba, bool enable);
 static int ufshcd_wb_toggle_flush_during_h8(struct ufs_hba *hba, bool set);
 static inline void ufshcd_wb_toggle_flush(struct ufs_hba *hba, bool enable);
 static void ufshcd_hba_vreg_set_lpm(struct ufs_hba *hba);
@@ -581,7 +580,12 @@ static void ufshcd_print_pwr_info(struct ufs_hba *hba)
 		"INVALID MODE",
 	};
 
-	dev_err(hba->dev, "%s:[RX, TX]: gear=[%d, %d], lane[%d, %d], pwr[%s, %s], rate = %d\n",
+	/*
+	 * Using dev_dbg to avoid messages during runtime PM to avoid
+	 * never-ending cycles of messages written back to storage by user space
+	 * causing runtime resume, causing more messages and so on.
+	 */
+	dev_dbg(hba->dev, "%s:[RX, TX]: gear=[%d, %d], lane[%d, %d], pwr[%s, %s], rate = %d\n",
 		 __func__,
 		 hba->pwr_info.gear_rx, hba->pwr_info.gear_tx,
 		 hba->pwr_info.lane_rx, hba->pwr_info.lane_tx,
@@ -704,17 +708,28 @@ static inline int ufshcd_get_tr_ocs(struct ufshcd_lrb *lrbp)
 }
 
 /**
- * ufshcd_utrl_clear - Clear a bit in UTRLCLR register
+ * ufshcd_utrl_clear() - Clear requests from the controller request list.
  * @hba: per adapter instance
- * @pos: position of the bit to be cleared
+ * @mask: mask with one bit set for each request to be cleared
  */
-static inline void ufshcd_utrl_clear(struct ufs_hba *hba, u32 pos)
+static inline void ufshcd_utrl_clear(struct ufs_hba *hba, u32 mask)
 {
 	if (hba->quirks & UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR)
-		ufshcd_writel(hba, (1 << pos), REG_UTP_TRANSFER_REQ_LIST_CLEAR);
-	else
-		ufshcd_writel(hba, ~(1 << pos),
-				REG_UTP_TRANSFER_REQ_LIST_CLEAR);
+		mask = ~mask;
+	/*
+	 * From the UFSHCI specification: "UTP Transfer Request List CLear
+	 * Register (UTRLCLR): This field is bit significant. Each bit
+	 * corresponds to a slot in the UTP Transfer Request List, where bit 0
+	 * corresponds to request slot 0. A bit in this field is set to ‘0’
+	 * by host software to indicate to the host controller that a transfer
+	 * request slot is cleared. The host controller
+	 * shall free up any resources associated to the request slot
+	 * immediately, and shall set the associated bit in UTRLDBR to ‘0’. The
+	 * host software indicates no change to request slots by setting the
+	 * associated bits in this field to ‘1’. Bits in this field shall only
+	 * be set ‘1’ or ‘0’ by host software when UTRLRSR is set to ‘1’."
+	 */
+	ufshcd_writel(hba, ~mask, REG_UTP_TRANSFER_REQ_LIST_CLEAR);
 }
 
 /**
@@ -728,16 +743,6 @@ static inline void ufshcd_utmrl_clear(struct ufs_hba *hba, u32 pos)
 		ufshcd_writel(hba, (1 << pos), REG_UTP_TASK_REQ_LIST_CLEAR);
 	else
 		ufshcd_writel(hba, ~(1 << pos), REG_UTP_TASK_REQ_LIST_CLEAR);
-}
-
-/**
- * ufshcd_outstanding_req_clear - Clear a bit in outstanding request field
- * @hba: per adapter instance
- * @tag: position of the bit to be cleared
- */
-static inline void ufshcd_outstanding_req_clear(struct ufs_hba *hba, int tag)
-{
-	clear_bit(tag, &hba->outstanding_reqs);
 }
 
 /**
@@ -1059,13 +1064,38 @@ static bool ufshcd_is_devfreq_scaling_required(struct ufs_hba *hba,
 	return false;
 }
 
+/*
+ * Determine the number of pending commands by counting the bits in the SCSI
+ * device budget maps. This approach has been selected because a bit is set in
+ * the budget map before scsi_host_queue_ready() checks the host_self_blocked
+ * flag. The host_self_blocked flag can be modified by calling
+ * scsi_block_requests() or scsi_unblock_requests().
+ */
+static u32 ufshcd_pending_cmds(struct ufs_hba *hba)
+{
+	struct scsi_device *sdev;
+	u32 pending = 0;
+
+	lockdep_assert_held(hba->host->host_lock);
+	__shost_for_each_device(sdev, hba->host)
+		pending += atomic_read(&sdev->device_busy);
+
+	return pending;
+}
+
+/*
+ * Wait until all pending SCSI commands and TMFs have finished or the timeout
+ * has expired.
+ *
+ * Return: 0 upon success; -EBUSY upon timeout.
+ */
 static int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba,
 					u64 wait_timeout_us)
 {
 	unsigned long flags;
 	int ret = 0;
 	u32 tm_doorbell;
-	u32 tr_doorbell;
+	u32 tr_pending;
 	bool timeout = false, do_last_check = false;
 	ktime_t start;
 
@@ -1083,8 +1113,8 @@ static int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba,
 		}
 
 		tm_doorbell = ufshcd_readl(hba, REG_UTP_TASK_REQ_DOOR_BELL);
-		tr_doorbell = ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
-		if (!tm_doorbell && !tr_doorbell) {
+		tr_pending = ufshcd_pending_cmds(hba);
+		if (!tm_doorbell && !tr_pending) {
 			timeout = false;
 			break;
 		} else if (do_last_check) {
@@ -1092,7 +1122,7 @@ static int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba,
 		}
 
 		spin_unlock_irqrestore(hba->host->host_lock, flags);
-		schedule();
+		io_schedule_timeout(msecs_to_jiffies(20));
 		if (ktime_to_us(ktime_sub(ktime_get(), start)) >
 		    wait_timeout_us) {
 			timeout = true;
@@ -1104,12 +1134,12 @@ static int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba,
 			do_last_check = true;
 		}
 		spin_lock_irqsave(hba->host->host_lock, flags);
-	} while (tm_doorbell || tr_doorbell);
+	} while (tm_doorbell || tr_pending);
 
 	if (timeout) {
 		dev_err(hba->dev,
 			"%s: timedout waiting for doorbell to clear (tm=0x%x, tr=0x%x)\n",
-			__func__, tm_doorbell, tr_doorbell);
+			__func__, tm_doorbell, tr_pending);
 		ret = -EBUSY;
 	}
 out:
@@ -1163,9 +1193,14 @@ static int ufshcd_scale_gear(struct ufs_hba *hba, bool scale_up)
 	return ret;
 }
 
-static int ufshcd_clock_scaling_prepare(struct ufs_hba *hba)
+/*
+ * Wait until all pending SCSI commands and TMFs have finished or the timeout
+ * has expired.
+ *
+ * Return: 0 upon success; -EBUSY upon timeout.
+ */
+static int ufshcd_clock_scaling_prepare(struct ufs_hba *hba, u64 timeout_us)
 {
-	#define DOORBELL_CLR_TOUT_US		(1000 * 1000) /* 1 sec */
 	int ret = 0;
 	/*
 	 * make sure that there are no outstanding requests when
@@ -1174,8 +1209,7 @@ static int ufshcd_clock_scaling_prepare(struct ufs_hba *hba)
 	ufshcd_scsi_block_requests(hba);
 	down_write(&hba->clk_scaling_lock);
 
-	if (!hba->clk_scaling.is_allowed ||
-	    ufshcd_wait_for_doorbell_clr(hba, DOORBELL_CLR_TOUT_US)) {
+	if (ufshcd_wait_for_doorbell_clr(hba, timeout_us)) {
 		ret = -EBUSY;
 		up_write(&hba->clk_scaling_lock);
 		ufshcd_scsi_unblock_requests(hba);
@@ -1213,9 +1247,17 @@ static int ufshcd_devfreq_scale(struct ufs_hba *hba, bool scale_up)
 	int ret = 0;
 	bool is_writelock = true;
 
-	ret = ufshcd_clock_scaling_prepare(hba);
+	if (!hba->clk_scaling.is_allowed)
+		return -EBUSY;
+
+	ret = ufshcd_clock_scaling_prepare(hba, 1 * USEC_PER_SEC);
 	if (ret)
 		return ret;
+
+	if (!hba->clk_scaling.is_allowed) {
+		ret = -EBUSY;
+		goto out_unprepare;
+	}
 
 	/* scale down the gear before scaling down clocks */
 	if (!scale_up) {
@@ -1649,6 +1691,26 @@ unblock_reqs:
 	ufshcd_scsi_unblock_requests(hba);
 }
 
+/*
+ * Block processing of new SCSI commands and wait until pending SCSI
+ * commands and TMFs have finished. ufshcd_exec_dev_cmd() and
+ * ufshcd_issue_devman_upiu_cmd() are not affected by this function.
+ *
+ * Return: 0 upon success; -EBUSY upon timeout.
+ */
+int ufshcd_freeze_scsi_devs(struct ufs_hba *hba, u64 timeout_us)
+{
+	return ufshcd_clock_scaling_prepare(hba, timeout_us);
+}
+EXPORT_SYMBOL_GPL(ufshcd_freeze_scsi_devs);
+
+/* Resume processing of SCSI commands. */
+void ufshcd_unfreeze_scsi_devs(struct ufs_hba *hba)
+{
+	ufshcd_clock_scaling_unprepare(hba, true);
+}
+EXPORT_SYMBOL_GPL(ufshcd_unfreeze_scsi_devs);
+
 /**
  * ufshcd_hold - Enable clocks that were gated earlier due to ufshcd_release.
  * Also, exit from hibern8 mode and set the link as active.
@@ -1661,7 +1723,8 @@ int ufshcd_hold(struct ufs_hba *hba, bool async)
 	bool flush_result;
 	unsigned long flags;
 
-	if (!ufshcd_is_clkgating_allowed(hba))
+	if (!ufshcd_is_clkgating_allowed(hba) ||
+	    !hba->clk_gating.is_initialized)
 		goto out;
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	hba->clk_gating.active_reqs++;
@@ -1821,7 +1884,7 @@ static void __ufshcd_release(struct ufs_hba *hba)
 
 	if (hba->clk_gating.active_reqs || hba->clk_gating.is_suspended ||
 	    hba->ufshcd_state != UFSHCD_STATE_OPERATIONAL ||
-	    hba->outstanding_tasks ||
+	    hba->outstanding_tasks || !hba->clk_gating.is_initialized ||
 	    hba->active_uic_cmd || hba->uic_async_done ||
 	    hba->clk_gating.state == CLKS_OFF)
 		return;
@@ -1956,11 +2019,15 @@ static void ufshcd_exit_clk_gating(struct ufs_hba *hba)
 {
 	if (!hba->clk_gating.is_initialized)
 		return;
+
 	ufshcd_remove_clk_gating_sysfs(hba);
-	cancel_work_sync(&hba->clk_gating.ungate_work);
-	cancel_delayed_work_sync(&hba->clk_gating.gate_work);
-	destroy_workqueue(hba->clk_gating.clk_gating_workq);
+
+	/* Ungate the clock if necessary. */
+	ufshcd_hold(hba, false);
 	hba->clk_gating.is_initialized = false;
+	ufshcd_release(hba);
+
+	destroy_workqueue(hba->clk_gating.clk_gating_workq);
 }
 
 /* Must be called with host lock acquired */
@@ -2101,17 +2168,17 @@ void ufshcd_send_command(struct ufs_hba *hba, unsigned int task_tag)
 	if (hba->vops && hba->vops->setup_xfer_req)
 		hba->vops->setup_xfer_req(hba, task_tag, !!lrbp->cmd);
 	if (ufshcd_has_utrlcnr(hba)) {
-		set_bit(task_tag, &hba->outstanding_reqs);
+		__set_bit(task_tag, &hba->outstanding_reqs);
 		ufshcd_writel(hba, 1 << task_tag,
 			      REG_UTP_TRANSFER_REQ_DOOR_BELL);
 	} else {
 		unsigned long flags;
 
-		spin_lock_irqsave(hba->host->host_lock, flags);
-		set_bit(task_tag, &hba->outstanding_reqs);
+		spin_lock_irqsave(&hba->outstanding_lock, flags);
+		__set_bit(task_tag, &hba->outstanding_reqs);
 		ufshcd_writel(hba, 1 << task_tag,
 			      REG_UTP_TRANSFER_REQ_DOOR_BELL);
-		spin_unlock_irqrestore(hba->host->host_lock, flags);
+		spin_unlock_irqrestore(&hba->outstanding_lock, flags);
 	}
 	/* Make sure that doorbell is committed immediately */
 	wmb();
@@ -2383,12 +2450,19 @@ static int ufshcd_map_sg(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 		prd = (struct ufshcd_sg_entry *)lrbp->ucd_prdt_ptr;
 
 		scsi_for_each_sg(cmd, sg, sg_segments, i) {
-			prd->size =
-				cpu_to_le32(((u32) sg_dma_len(sg))-1);
-			prd->base_addr =
-				cpu_to_le32(lower_32_bits(sg->dma_address));
-			prd->upper_addr =
-				cpu_to_le32(upper_32_bits(sg->dma_address));
+			const unsigned int len = sg_dma_len(sg);
+
+			/*
+			 * From the UFSHCI spec: "Data Byte Count (DBC): A '0'
+			 * based value that indicates the length, in bytes, of
+			 * the data block. A maximum of length of 256KB may
+			 * exist for any entry. Bits 1:0 of this field shall be
+			 * 11b to indicate Dword granularity. A value of '3'
+			 * indicates 4 bytes, '7' indicates 8 bytes, etc."
+			 */
+			WARN_ONCE(len > 256 * 1024, "len = %#x\n", len);
+			prd->size = cpu_to_le32(len - 1);
+			prd->addr = cpu_to_le64(sg->dma_address);
 			prd->reserved = 0;
 			prd = (void *)prd + hba->sg_entry_size;
 		}
@@ -2693,8 +2767,11 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 		BUG();
 	}
 
-	if (!down_read_trylock(&hba->clk_scaling_lock))
-		return SCSI_MLQUEUE_HOST_BUSY;
+	/*
+	 * Allows the UFS error handler to wait for prior ufshcd_queuecommand()
+	 * calls.
+	 */
+	rcu_read_lock();
 
 	switch (hba->ufshcd_state) {
 	case UFSHCD_STATE_OPERATIONAL:
@@ -2778,12 +2855,12 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 		ufshcd_release(hba);
 		goto out;
 	}
-	/* Make sure descriptors are ready before ringing the doorbell */
-	wmb();
 
 	ufshcd_send_command(hba, tag);
+
 out:
-	up_read(&hba->clk_scaling_lock);
+	rcu_read_unlock();
+
 	return err;
 }
 
@@ -2802,27 +2879,26 @@ static int ufshcd_compose_dev_cmd(struct ufs_hba *hba,
 	return ufshcd_compose_devman_upiu(hba, lrbp);
 }
 
-static int
-ufshcd_clear_cmd(struct ufs_hba *hba, int tag)
+/*
+ * Clear all the requests from the controller for which a bit has been set in
+ * @mask and wait until the controller confirms that these requests have been
+ * cleared.
+ */
+static int ufshcd_clear_cmds(struct ufs_hba *hba, u32 mask)
 {
-	int err = 0;
 	unsigned long flags;
-	u32 mask = 1 << tag;
 
 	/* clear outstanding transaction before retry */
 	spin_lock_irqsave(hba->host->host_lock, flags);
-	ufshcd_utrl_clear(hba, tag);
+	ufshcd_utrl_clear(hba, mask);
 	spin_unlock_irqrestore(hba->host->host_lock, flags);
 
 	/*
 	 * wait for for h/w to clear corresponding bit in door-bell.
 	 * max. wait is 1 sec.
 	 */
-	err = ufshcd_wait_for_register(hba,
-			REG_UTP_TRANSFER_REQ_DOOR_BELL,
-			mask, ~mask, 1000, 1000);
-
-	return err;
+	return ufshcd_wait_for_register(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL,
+					mask, ~mask, 1000, 1000);
 }
 
 static int
@@ -2882,37 +2958,58 @@ ufshcd_dev_cmd_completion(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 static int ufshcd_wait_for_dev_cmd(struct ufs_hba *hba,
 		struct ufshcd_lrb *lrbp, int max_timeout)
 {
-	int err = 0;
-	unsigned long time_left;
+	unsigned long time_left = msecs_to_jiffies(max_timeout);
 	unsigned long flags;
+	bool pending;
+	int err;
 
+retry:
 	time_left = wait_for_completion_timeout(hba->dev_cmd.complete,
-			msecs_to_jiffies(max_timeout));
+						time_left);
 
-	/* Make sure descriptors are ready before ringing the doorbell */
-	wmb();
-	spin_lock_irqsave(hba->host->host_lock, flags);
-	hba->dev_cmd.complete = NULL;
 	if (likely(time_left)) {
+		/*
+		 * The caller of this function still owns the @lrbp tag so the
+		 * code below does not trigger any race conditions.
+		 */
+		hba->dev_cmd.complete = NULL;
 		err = ufshcd_get_tr_ocs(lrbp);
 		if (!err)
 			err = ufshcd_dev_cmd_completion(hba, lrbp);
-	}
-	spin_unlock_irqrestore(hba->host->host_lock, flags);
-
-	if (!time_left) {
+	} else {
 		err = -ETIMEDOUT;
 		dev_dbg(hba->dev, "%s: dev_cmd request timedout, tag %d\n",
 			__func__, lrbp->task_tag);
-		if (!ufshcd_clear_cmd(hba, lrbp->task_tag))
+		if (!ufshcd_clear_cmds(hba, 1U << lrbp->task_tag)) {
 			/* successfully cleared the command, retry if needed */
 			err = -EAGAIN;
-		/*
-		 * in case of an error, after clearing the doorbell,
-		 * we also need to clear the outstanding_request
-		 * field in hba
-		 */
-		ufshcd_outstanding_req_clear(hba, lrbp->task_tag);
+			/*
+			 * Since clearing the command succeeded we also need to
+			 * clear the task tag bit from the outstanding_reqs
+			 * variable.
+			 */
+			spin_lock_irqsave(&hba->outstanding_lock, flags);
+			pending = test_bit(lrbp->task_tag,
+					   &hba->outstanding_reqs);
+			if (pending) {
+				hba->dev_cmd.complete = NULL;
+				__clear_bit(lrbp->task_tag,
+					    &hba->outstanding_reqs);
+			}
+			spin_unlock_irqrestore(&hba->outstanding_lock, flags);
+
+			if (!pending) {
+				/*
+				 * A race occurred between this function and the
+				 * completion handler.
+				 */
+				time_left = 1;
+				goto retry;
+			}
+		} else {
+			dev_err(hba->dev, "%s: failed to clear tag %d\n", __func__,
+				lrbp->task_tag);
+		}
 	}
 
 	return err;
@@ -2949,8 +3046,6 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	hba->dev_cmd.complete = &wait;
 
 	ufshcd_add_query_upiu_trace(hba, tag, "query_send");
-	/* Make sure descriptors are ready before ringing the doorbell */
-	wmb();
 
 	ufshcd_send_command(hba, tag);
 	err = ufshcd_wait_for_dev_cmd(hba, lrbp, timeout);
@@ -4931,6 +5026,12 @@ static int ufshcd_slave_configure(struct scsi_device *sdev)
 
 	if (ufshcd_is_rpm_autosuspend_allowed(hba))
 		sdev->rpm_autosuspend = 1;
+	/*
+	 * Do not print messages during runtime PM to avoid never-ending cycles
+	 * of messages written back to storage by user space causing runtime
+	 * resume, causing more messages and so on.
+	 */
+	sdev->silence_suspend = 1;
 
 	ufshcd_crypto_setup_rq_keyslot_manager(hba, q);
 
@@ -4978,9 +5079,7 @@ ufshcd_scsi_cmd_status(struct ufshcd_lrb *lrbp, int scsi_status)
 		ufshcd_copy_sense_data(lrbp);
 		fallthrough;
 	case SAM_STAT_GOOD:
-		result |= DID_OK << 16 |
-			  COMMAND_COMPLETE << 8 |
-			  scsi_status;
+		result |= DID_OK << 16 | scsi_status;
 		break;
 	case SAM_STAT_TASK_SET_FULL:
 	case SAM_STAT_BUSY:
@@ -5199,8 +5298,6 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 	int index;
 
 	for_each_set_bit(index, &completed_reqs, hba->nutrs) {
-		if (!test_and_clear_bit(index, &hba->outstanding_reqs))
-			continue;
 		lrbp = &hba->lrb[index];
 		lrbp->compl_time_stamp = ktime_get();
 		cmd = lrbp->cmd;
@@ -5263,10 +5360,14 @@ static irqreturn_t ufshcd_trc_handler(struct ufs_hba *hba, bool use_utrlcnr)
 		unsigned long flags;
 		u32 tr_doorbell;
 
-		spin_lock_irqsave(hba->host->host_lock, flags);
+		spin_lock_irqsave(&hba->outstanding_lock, flags);
 		tr_doorbell = ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
-		completed_reqs = tr_doorbell ^ hba->outstanding_reqs;
-		spin_unlock_irqrestore(hba->host->host_lock, flags);
+		completed_reqs = ~tr_doorbell & hba->outstanding_reqs;
+		WARN_ONCE(completed_reqs & ~hba->outstanding_reqs,
+			  "completed: %#lx; outstanding: %#lx\n", completed_reqs,
+			  hba->outstanding_reqs);
+		hba->outstanding_reqs &= ~completed_reqs;
+		spin_unlock_irqrestore(&hba->outstanding_lock, flags);
 	}
 
 	if (completed_reqs) {
@@ -5548,7 +5649,7 @@ out:
 				__func__, err);
 }
 
-static int ufshcd_wb_ctrl(struct ufs_hba *hba, bool enable)
+int ufshcd_wb_ctrl(struct ufs_hba *hba, bool enable)
 {
 	int ret;
 	u8 index;
@@ -5923,8 +6024,7 @@ static void ufshcd_err_handling_prepare(struct ufs_hba *hba)
 	}
 	ufshcd_scsi_block_requests(hba);
 	/* Drain ufshcd_queuecommand() */
-	down_write(&hba->clk_scaling_lock);
-	up_write(&hba->clk_scaling_lock);
+	synchronize_rcu();
 	cancel_work_sync(&hba->eeh_work);
 }
 
@@ -6434,8 +6534,7 @@ static irqreturn_t ufshcd_intr(int irq, void *__hba)
 	while (intr_status && retries--) {
 		enabled_intr_status =
 			intr_status & ufshcd_readl(hba, REG_INTERRUPT_ENABLE);
-		if (intr_status)
-			ufshcd_writel(hba, intr_status, REG_INTERRUPT_STATUS);
+		ufshcd_writel(hba, intr_status, REG_INTERRUPT_STATUS);
 		if (enabled_intr_status)
 			retval |= ufshcd_sl_intr(hba, enabled_intr_status);
 
@@ -6443,7 +6542,8 @@ static irqreturn_t ufshcd_intr(int irq, void *__hba)
 	}
 
 	if (enabled_intr_status && retval == IRQ_NONE &&
-				!ufshcd_eh_in_progress(hba)) {
+	    (!(enabled_intr_status & UTP_TRANSFER_REQ_COMPL) ||
+	     hba->outstanding_reqs) && !ufshcd_eh_in_progress(hba)) {
 		dev_err(hba->dev, "%s: Unhandled interrupt 0x%08x (0x%08x, 0x%08x)\n",
 					__func__,
 					intr_status,
@@ -6508,9 +6608,6 @@ static int __ufshcd_issue_tm_cmd(struct ufs_hba *hba,
 
 	/* send command to the controller */
 	__set_bit(task_tag, &hba->outstanding_tasks);
-
-	/* Make sure descriptors are ready before ringing the task doorbell */
-	wmb();
 
 	ufshcd_writel(hba, 1 << task_tag, REG_UTP_TASK_REQ_DOOR_BELL);
 	/* Make sure that doorbell is committed immediately */
@@ -6666,9 +6763,6 @@ static int ufshcd_issue_devman_upiu_cmd(struct ufs_hba *hba,
 
 	hba->dev_cmd.complete = &wait;
 
-	/* Make sure descriptors are ready before ringing the doorbell */
-	wmb();
-
 	ufshcd_send_command(hba, tag);
 	/*
 	 * ignore the returning value here - ufshcd_check_query_response is
@@ -6772,14 +6866,14 @@ int ufshcd_exec_raw_upiu_cmd(struct ufs_hba *hba,
 }
 
 /**
- * ufshcd_eh_device_reset_handler - device reset handler registered to
- *                                    scsi layer.
+ * ufshcd_eh_device_reset_handler() - Reset a single logical unit.
  * @cmd: SCSI command pointer
  *
  * Returns SUCCESS/FAILED
  */
 static int ufshcd_eh_device_reset_handler(struct scsi_cmnd *cmd)
 {
+	unsigned long flags, pending_reqs = 0, not_cleared = 0;
 	struct Scsi_Host *host;
 	struct ufs_hba *hba;
 	u32 pos;
@@ -6798,14 +6892,24 @@ static int ufshcd_eh_device_reset_handler(struct scsi_cmnd *cmd)
 	}
 
 	/* clear the commands that were pending for corresponding LUN */
-	for_each_set_bit(pos, &hba->outstanding_reqs, hba->nutrs) {
-		if (hba->lrb[pos].lun == lun) {
-			err = ufshcd_clear_cmd(hba, pos);
-			if (err)
-				break;
-			__ufshcd_transfer_req_compl(hba, 1U << pos);
-		}
+	spin_lock_irqsave(&hba->outstanding_lock, flags);
+	for_each_set_bit(pos, &hba->outstanding_reqs, hba->nutrs)
+		if (hba->lrb[pos].lun == lun)
+			__set_bit(pos, &pending_reqs);
+	hba->outstanding_reqs &= ~pending_reqs;
+	spin_unlock_irqrestore(&hba->outstanding_lock, flags);
+
+	if (ufshcd_clear_cmds(hba, pending_reqs) < 0) {
+		spin_lock_irqsave(&hba->outstanding_lock, flags);
+		not_cleared = pending_reqs &
+			ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
+		hba->outstanding_reqs |= not_cleared;
+		spin_unlock_irqrestore(&hba->outstanding_lock, flags);
+
+		dev_err(hba->dev, "%s: failed to clear requests %#lx\n",
+			__func__, not_cleared);
 	}
+	__ufshcd_transfer_req_compl(hba, pending_reqs & ~not_cleared);
 
 out:
 	hba->req_abort_count = 0;
@@ -6902,7 +7006,7 @@ static int ufshcd_try_to_abort_task(struct ufs_hba *hba, int tag)
 		goto out;
 	}
 
-	err = ufshcd_clear_cmd(hba, tag);
+	err = ufshcd_clear_cmds(hba, 1U << tag);
 	if (err)
 		dev_err(hba->dev, "%s: Failed clearing cmd at tag %d, err %d\n",
 			__func__, tag, err);
@@ -7211,7 +7315,13 @@ static u32 ufshcd_find_max_sup_active_icc_level(struct ufs_hba *hba,
 
 	if (!hba->vreg_info.vcc || !hba->vreg_info.vccq ||
 						!hba->vreg_info.vccq2) {
-		dev_err(hba->dev,
+		/*
+		 * Using dev_dbg to avoid messages during runtime PM to avoid
+		 * never-ending cycles of messages written back to storage by
+		 * user space causing runtime resume, causing more messages and
+		 * so on.
+		 */
+		dev_dbg(hba->dev,
 			"%s: Regulator capability was not set, actvIccLevel=%d",
 							__func__, icc_level);
 		goto out;
@@ -7341,6 +7451,7 @@ static void ufshcd_wb_probe(struct ufs_hba *hba, u8 *desc_buf)
 	struct ufs_dev_info *dev_info = &hba->dev_info;
 	u8 lun;
 	u32 d_lu_wb_buf_alloc;
+	u32 ext_ufs_feature;
 
 	if (!ufshcd_is_wb_allowed(hba))
 		return;
@@ -7358,11 +7469,10 @@ static void ufshcd_wb_probe(struct ufs_hba *hba, u8 *desc_buf)
 	    DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP + 4)
 		goto wb_disabled;
 
-	dev_info->d_ext_ufs_feature_sup =
-		get_unaligned_be32(desc_buf +
-				   DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP);
+	ext_ufs_feature = get_unaligned_be32(desc_buf +
+					DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP);
 
-	if (!(dev_info->d_ext_ufs_feature_sup & UFS_DEV_WRITE_BOOSTER_SUP))
+	if (!(ext_ufs_feature & UFS_DEV_WRITE_BOOSTER_SUP))
 		goto wb_disabled;
 
 	/*
@@ -7378,10 +7488,8 @@ static void ufshcd_wb_probe(struct ufs_hba *hba, u8 *desc_buf)
 		desc_buf[DEVICE_DESC_PARAM_WB_PRESRV_USRSPC_EN];
 
 	if (dev_info->b_wb_buffer_type == WB_BUF_MODE_SHARED) {
-		dev_info->d_wb_alloc_units =
-		get_unaligned_be32(desc_buf +
-				   DEVICE_DESC_PARAM_WB_SHARED_ALLOC_UNITS);
-		if (!dev_info->d_wb_alloc_units)
+		if (!get_unaligned_be32(desc_buf +
+				   DEVICE_DESC_PARAM_WB_SHARED_ALLOC_UNITS))
 			goto wb_disabled;
 	} else {
 		for (lun = 0; lun < UFS_UPIU_MAX_WB_LUN_ID; lun++) {
@@ -8513,7 +8621,7 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 		sdev_printk(KERN_WARNING, sdp,
 			    "START_STOP failed for power mode: %d, result %x\n",
 			    pwr_mode, ret);
-		if (driver_byte(ret) == DRIVER_SENSE)
+		if (ret > 0 && scsi_sense_valid(&sshdr))
 			scsi_print_sense_hdr(sdp, NULL, &sshdr);
 	}
 
@@ -9220,11 +9328,12 @@ int ufshcd_alloc_host(struct device *dev, struct ufs_hba **hba_handle)
 	hba = shost_priv(host);
 	hba->host = host;
 	hba->dev = dev;
-	*hba_handle = hba;
 	hba->dev_ref_clk_freq = REF_CLK_FREQ_INVAL;
 	hba->sg_entry_size = sizeof(struct ufshcd_sg_entry);
-
 	INIT_LIST_HEAD(&hba->clk_list_head);
+	spin_lock_init(&hba->outstanding_lock);
+
+	*hba_handle = hba;
 
 out_error:
 	return err;
@@ -9287,10 +9396,6 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 
 	/* Get UFS version supported by the controller */
 	hba->ufs_version = ufshcd_get_ufs_version(hba);
-
-	if (hba->ufs_version < ufshci_version(1, 0))
-		dev_err(hba->dev, "invalid UFS version 0x%x\n",
-			hba->ufs_version);
 
 	/* Get Interrupt bit mask per version */
 	hba->intr_mask = ufshcd_get_intr_mask(hba);

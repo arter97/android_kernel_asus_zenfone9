@@ -735,6 +735,7 @@ struct ufs_hba_monitor {
  * @lrb: local reference block
  * @cmd_queue: Used to allocate command tags from hba->host->tag_set.
  * @outstanding_tasks: Bits representing outstanding task requests
+ * @outstanding_lock: Protects @outstanding_reqs.
  * @outstanding_reqs: Bits representing outstanding transfer requests
  * @capabilities: UFS Controller Capabilities
  * @nutrs: Transfer Request Queue depth supported by controller
@@ -774,6 +775,7 @@ struct ufs_hba_monitor {
  * @clk_list_head: UFS host controller clocks list node head
  * @pwr_info: holds current power mode
  * @max_pwr_info: keeps the device max valid pwm
+ * @clk_scaling_lock: used to serialize device commands and clock scaling
  * @desc_size: descriptor sizes reported by device
  * @urgent_bkops_lvl: keeps track of urgent bkops level for device
  * @is_urgent_bkops_lvl_checked: keeps track if the urgent bkops level for
@@ -823,6 +825,7 @@ struct ufs_hba {
 	struct ufshcd_lrb *lrb;
 
 	unsigned long outstanding_tasks;
+	spinlock_t outstanding_lock;
 	unsigned long outstanding_reqs;
 
 	u32 capabilities;
@@ -972,16 +975,8 @@ static inline bool ufshcd_is_rpm_autosuspend_allowed(struct ufs_hba *hba)
 
 static inline bool ufshcd_is_intr_aggr_allowed(struct ufs_hba *hba)
 {
-/* DWC UFS Core has the Interrupt aggregation feature but is not detectable*/
-#ifndef CONFIG_SCSI_UFS_DWC
-	if ((hba->caps & UFSHCD_CAP_INTR_AGGR) &&
-	    !(hba->quirks & UFSHCD_QUIRK_BROKEN_INTR_AGGR))
-		return true;
-	else
-		return false;
-#else
-return true;
-#endif
+	return (hba->caps & UFSHCD_CAP_INTR_AGGR) &&
+		!(hba->quirks & UFSHCD_QUIRK_BROKEN_INTR_AGGR);
 }
 
 static inline bool ufshcd_can_aggressive_pc(struct ufs_hba *hba)
@@ -1194,6 +1189,9 @@ int ufshcd_read_string_desc(struct ufs_hba *hba, u8 desc_index,
 int ufshcd_hold(struct ufs_hba *hba, bool async);
 void ufshcd_release(struct ufs_hba *hba);
 
+int ufshcd_freeze_scsi_devs(struct ufs_hba *hba, u64 timeout_us);
+void ufshcd_unfreeze_scsi_devs(struct ufs_hba *hba);
+
 void ufshcd_map_desc_id_to_length(struct ufs_hba *hba, enum desc_idn desc_id,
 				  int *desc_length);
 
@@ -1207,6 +1205,8 @@ int ufshcd_exec_raw_upiu_cmd(struct ufs_hba *hba,
 			     int msgcode,
 			     u8 *desc_buff, int *buff_len,
 			     enum query_opcode desc_op);
+
+int ufshcd_wb_ctrl(struct ufs_hba *hba, bool enable);
 
 /* Wrapper functions for safely calling variant operations */
 static inline const char *ufshcd_get_var_name(struct ufs_hba *hba)

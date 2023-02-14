@@ -36,7 +36,6 @@
 #include "cpastop_v165_100.h"
 #include "cpastop_v780_100.h"
 #include "cpastop_v640_200.h"
-#include "cpastop_v640_210.h"
 #include "cam_req_mgr_workq.h"
 #include "cam_common_util.h"
 
@@ -67,7 +66,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_170 */
 	{
@@ -77,7 +75,6 @@ static const uint32_t cam_cpas_hw_version_map
 		CAM_CPAS_TITAN_170_V120,
 		0,
 		CAM_CPAS_TITAN_170_V200,
-		0,
 	},
 	/* for camera_175 */
 	{
@@ -87,12 +84,10 @@ static const uint32_t cam_cpas_hw_version_map
 		CAM_CPAS_TITAN_175_V120,
 		CAM_CPAS_TITAN_175_V130,
 		0,
-		0,
 	},
 	/* for camera_480 */
 	{
 		CAM_CPAS_TITAN_480_V100,
-		0,
 		0,
 		0,
 		0,
@@ -107,12 +102,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_520 */
 	{
 		CAM_CPAS_TITAN_520_V100,
-		0,
 		0,
 		0,
 		0,
@@ -128,12 +121,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_545 */
 	{
 		CAM_CPAS_TITAN_545_V100,
-		0,
 		0,
 		0,
 		0,
@@ -148,7 +139,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		CAM_CPAS_TITAN_570_V200,
-		0,
 	},
 	/* for camera_680 */
 	{
@@ -158,12 +148,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_165 */
 	{
 		CAM_CPAS_TITAN_165_V100,
-		0,
 		0,
 		0,
 		0,
@@ -178,7 +166,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_640 */
 	{
@@ -188,7 +175,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		CAM_CPAS_TITAN_640_V200,
-		CAM_CPAS_TITAN_640_V210,
 	},
 };
 
@@ -281,10 +267,6 @@ static int cam_cpas_translate_camera_cpas_version_id(
 
 	case CAM_CPAS_VERSION_200:
 		*cpas_version_id = CAM_CPAS_VERSION_ID_200;
-		break;
-
-	case CAM_CPAS_VERSION_210:
-		*cpas_version_id = CAM_CPAS_VERSION_ID_210;
 		break;
 
 	default:
@@ -1036,11 +1018,6 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 		camnoc_info = &cam640_cpas200_camnoc_info;
 		qchannel_info = &cam640_cpas200_qchannel_info;
 		cpas_top_info = &cam640_cpas200_cpas_top_info;
-		break;
-	case CAM_CPAS_TITAN_640_V210:
-		camnoc_info = &cam640_cpas210_camnoc_info;
-		qchannel_info = &cam640_cpas210_qchannel_info;
-		cpas_top_info = &cam640_cpas210_cpas_top_info;
 		break;
 
 	default:

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -107,13 +106,6 @@ static int __cam_node_handle_acquire_dev(struct cam_node *node,
 	}
 
 	ctx->last_flush_req = 0;
-
-	rc = cam_handle_validate(acquire->session_handle, acquire->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for acquire dev");
-		goto free_ctx;
-	}
-
 	rc = cam_context_handle_acquire_dev(ctx, acquire);
 	if (rc) {
 		CAM_ERR(CAM_CORE, "Acquire device failed for node %s",
@@ -150,16 +142,14 @@ static int __cam_node_handle_acquire_hw_v1(struct cam_node *node,
 	if (!acquire)
 		return -EINVAL;
 
-	rc = cam_handle_validate(acquire->session_handle, acquire->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (acquire->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(acquire->session_handle, acquire->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (acquire->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(acquire->dev_handle);
@@ -198,16 +188,14 @@ static int __cam_node_handle_acquire_hw_v2(struct cam_node *node,
 	if (!acquire)
 		return -EINVAL;
 
-	rc = cam_handle_validate(acquire->session_handle, acquire->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (acquire->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(acquire->session_handle, acquire->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (acquire->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(acquire->dev_handle);
@@ -240,16 +228,14 @@ static int __cam_node_handle_start_dev(struct cam_node *node,
 	if (!start)
 		return -EINVAL;
 
-	rc = cam_handle_validate(start->session_handle, start->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (start->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(start->session_handle, start->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (start->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(start->dev_handle);
@@ -281,16 +267,14 @@ static int __cam_node_handle_stop_dev(struct cam_node *node,
 	if (!stop)
 		return -EINVAL;
 
-	rc = cam_handle_validate(stop->session_handle, stop->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (stop->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(stop->session_handle, stop->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (stop->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(stop->dev_handle);
@@ -322,16 +306,14 @@ static int __cam_node_handle_config_dev(struct cam_node *node,
 	if (!config)
 		return -EINVAL;
 
-	rc = cam_handle_validate(config->session_handle, config->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (config->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(config->session_handle, config->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (config->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(config->dev_handle);
@@ -363,16 +345,16 @@ static int __cam_node_handle_flush_dev(struct cam_node *node,
 	if (!flush)
 		return -EINVAL;
 
-	rc = cam_handle_validate(flush->session_handle, flush->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (flush->dev_handle <= 0) {
+		CAM_ERR_RATE_LIMIT(CAM_CORE,
+			"Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(flush->session_handle, flush->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (flush->session_handle <= 0) {
+		CAM_ERR_RATE_LIMIT(CAM_CORE,
+			"Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(flush->dev_handle);
@@ -407,16 +389,14 @@ static int __cam_node_handle_release_dev(struct cam_node *node,
 	if (!release)
 		return -EINVAL;
 
-	rc = cam_handle_validate(release->session_handle, release->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (release->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(release->session_handle, release->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (release->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(release->dev_handle);
@@ -470,16 +450,16 @@ static int __cam_node_handle_dump_dev(struct cam_node *node,
 	if (!dump)
 		return -EINVAL;
 
-	rc = cam_handle_validate(dump->session_handle, dump->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (dump->dev_handle <= 0) {
+		CAM_ERR_RATE_LIMIT(CAM_CORE,
+			"Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(dump->session_handle, dump->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (dump->session_handle <= 0) {
+		CAM_ERR_RATE_LIMIT(CAM_CORE,
+			"Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(dump->dev_handle);
@@ -507,16 +487,14 @@ static int __cam_node_handle_release_hw_v1(struct cam_node *node,
 	if (!release)
 		return -EINVAL;
 
-	rc = cam_handle_validate(release->session_handle, release->session_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid session handle for context");
-		return rc;
+	if (release->dev_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid device handle for context");
+		return -EINVAL;
 	}
 
-	rc = cam_handle_validate(release->session_handle, release->dev_handle);
-	if (rc) {
-		CAM_ERR(CAM_CORE, "Invalid device handle for context");
-		return rc;
+	if (release->session_handle <= 0) {
+		CAM_ERR(CAM_CORE, "Invalid session handle for context");
+		return -EINVAL;
 	}
 
 	ctx = (struct cam_context *)cam_get_device_priv(release->dev_handle);

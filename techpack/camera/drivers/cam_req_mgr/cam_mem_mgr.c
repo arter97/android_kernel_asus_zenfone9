@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -386,17 +385,14 @@ int cam_mem_mgr_cache_ops(struct cam_mem_cache_ops_cmd *cmd)
 	if (idx >= CAM_MEM_BUFQ_MAX || idx <= 0)
 		return -EINVAL;
 
-	mutex_lock(&tbl.m_lock);
+	mutex_lock(&tbl.bufq[idx].q_lock);
 
-	if (!test_bit(idx, tbl.bitmap)) {
+	if (!tbl.bufq[idx].active) {
 		CAM_ERR(CAM_MEM, "Buffer at idx=%d is already unmapped,",
 			idx);
-		mutex_unlock(&tbl.m_lock);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto end;
 	}
-
-	mutex_lock(&tbl.bufq[idx].q_lock);
-	mutex_unlock(&tbl.m_lock);
 
 	if (cmd->buf_handle != tbl.bufq[idx].buf_handle) {
 		rc = -EINVAL;
@@ -747,6 +743,7 @@ static int cam_mem_util_buffer_alloc(size_t len, uint32_t flags,
 	unsigned long *i_ino)
 {
 	int rc;
+	struct dma_buf *temp_dmabuf = NULL;
 
 	rc = cam_mem_util_get_dma_buf(len, flags, dmabuf, i_ino);
 	if (rc) {
@@ -755,13 +752,6 @@ static int cam_mem_util_buffer_alloc(size_t len, uint32_t flags,
 			len, flags);
 		return rc;
 	}
-
-	/*
-	 * increment the ref count so that ref count becomes 2 here
-	 * when we close fd, refcount becomes 1 and when we do
-	 * dmap_put_buf, ref count becomes 0 and memory will be freed.
-	 */
-	get_dma_buf(*dmabuf);
 
 	*fd = dma_buf_fd(*dmabuf, O_CLOEXEC);
 	if (*fd < 0) {
@@ -772,6 +762,18 @@ static int cam_mem_util_buffer_alloc(size_t len, uint32_t flags,
 
 	CAM_DBG(CAM_MEM, "Alloc success : len=%zu, *dmabuf=%pK, fd=%d, i_ino=%lu",
 		len, *dmabuf, *fd, *i_ino);
+
+	/*
+	 * increment the ref count so that ref count becomes 2 here
+	 * when we close fd, refcount becomes 1 and when we do
+	 * dmap_put_buf, ref count becomes 0 and memory will be freed.
+	 */
+	temp_dmabuf = dma_buf_get(*fd);
+	if (IS_ERR_OR_NULL(temp_dmabuf)) {
+		rc = PTR_ERR(temp_dmabuf);
+		CAM_ERR(CAM_MEM, "dma_buf_get failed, *fd=%d, i_ino=%lu, rc=%d", *fd, *i_ino, rc);
+		goto put_buf;
+	}
 
 	return rc;
 
@@ -1381,6 +1383,12 @@ static int cam_mem_util_unmap(int32_t idx,
 		if (cam_mem_util_unmap_hw_va(idx, region, client))
 			CAM_ERR(CAM_MEM, "Failed, dmabuf=%pK",
 				tbl.bufq[idx].dma_buf);
+		/*
+		 * Workaround as smmu driver doing put_buf without get_buf for kernel mappings
+		 * Setting NULL here so that we dont call dma_buf_pt again below
+		 */
+		if (client == CAM_SMMU_MAPPING_KERNEL)
+			tbl.bufq[idx].dma_buf = NULL;
 	}
 
 	mutex_lock(&tbl.m_lock);

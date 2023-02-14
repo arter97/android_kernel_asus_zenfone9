@@ -5835,6 +5835,12 @@ static int wlan_hdd_get_sta_stats(struct wiphy *wiphy,
 		adapter->rssi = 0;
 		adapter->hdd_stats.summary_stat.rssi = 0;
 	}
+	/* Do not report the RSSI >-10dB, VoWifi can not camp with this rssi range */
+	else if (adapter->rssi > -10) {
+		printk("RSSI %d to strong, remapping to -11 dB\n", adapter->rssi);
+		adapter->rssi = -11;
+		adapter->hdd_stats.summary_stat.rssi = -11;
+	}
 
 	sinfo->signal = adapter->rssi;
 	hdd_debug("snr: %d, rssi: %d",

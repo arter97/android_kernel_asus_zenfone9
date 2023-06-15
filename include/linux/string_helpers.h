@@ -5,6 +5,7 @@
 #include <linux/ctype.h>
 #include <linux/types.h>
 
+struct device;
 struct file;
 struct task_struct;
 
@@ -17,6 +18,8 @@ enum string_size_units {
 
 void string_get_size(u64 size, u64 blk_size, enum string_size_units units,
 		     char *buf, int len);
+
+int parse_int_array_user(const char __user *from, size_t count, int **array);
 
 #define UNESCAPE_SPACE		0x01
 #define UNESCAPE_OCTAL		0x02
@@ -94,6 +97,9 @@ char *kstrdup_quotable(const char *src, gfp_t gfp);
 char *kstrdup_quotable_cmdline(struct task_struct *task, gfp_t gfp);
 char *kstrdup_quotable_file(struct file *file, gfp_t gfp);
 
+char **kasprintf_strarray(gfp_t gfp, const char *prefix, size_t n);
 void kfree_strarray(char **array, size_t n);
+
+char **devm_kasprintf_strarray(struct device *dev, const char *prefix, size_t n);
 
 #endif

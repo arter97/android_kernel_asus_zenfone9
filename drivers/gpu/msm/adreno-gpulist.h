@@ -16,6 +16,7 @@ static const struct adreno_gpu_core adreno_gpu_core_##_name = { \
 	.features = ADRENO_DEPRECATED, \
 }
 
+#if 0
 static const struct kgsl_regmap_list a306_vbif_regs[] = {
 	{ A3XX_VBIF_ROUND_ROBIN_QOS_ARB, 0x0003 },
 	{ A3XX_VBIF_OUT_RD_LIM_CONF0, 0x0000000A },
@@ -31,7 +32,6 @@ static const struct adreno_a3xx_core adreno_gpu_core_a306 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_128K,
 		.bus_width = 0,
-		.snapshot_size = 600 * SZ_1K,
 	},
 	.pm4fw_name = "a300_pm4.fw",
 	.pfpfw_name = "a300_pfp.fw",
@@ -54,7 +54,6 @@ static const struct adreno_a3xx_core adreno_gpu_core_a306a = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_128K,
 		.bus_width = 16,
-		.snapshot_size = 600 * SZ_1K,
 	},
 	.pm4fw_name = "a300_pm4.fw",
 	.pfpfw_name = "a300_pfp.fw",
@@ -75,7 +74,6 @@ static const struct adreno_a3xx_core adreno_gpu_core_a304 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = (SZ_64K + SZ_32K),
 		.bus_width = 0,
-		.snapshot_size = 600 * SZ_1K,
 	},
 	.pm4fw_name = "a300_pm4.fw",
 	.pfpfw_name = "a300_pfp.fw",
@@ -200,7 +198,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a530v2 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_1M,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.gpmu_tsens = 0x00060007,
 	.max_power = 5448,
@@ -227,7 +224,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a530v3 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_1M,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.gpmu_tsens = 0x00060007,
 	.max_power = 5448,
@@ -294,7 +290,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a505 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_128K + SZ_8K),
 		.bus_width = 16,
-		.snapshot_size = SZ_1M,
 	},
 	.pm4fw_name = "a530_pm4.fw",
 	.pfpfw_name = "a530_pfp.fw",
@@ -314,7 +309,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a506 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_128K + SZ_8K),
 		.bus_width = 16,
-		.snapshot_size = SZ_1M,
 	},
 	.pm4fw_name = "a530_pm4.fw",
 	.pfpfw_name = "a530_pfp.fw",
@@ -393,7 +387,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a510 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_256K,
 		.bus_width = 16,
-		.snapshot_size = SZ_1M,
 	},
 	.pm4fw_name = "a530_pm4.fw",
 	.pfpfw_name = "a530_pfp.fw",
@@ -519,7 +512,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a540v2 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_1M,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.gpmu_tsens = 0x000c000d,
 	.max_power = 5448,
@@ -603,7 +595,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a512 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_256K + SZ_16K),
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.pm4fw_name = "a530_pm4.fw",
 	.pfpfw_name = "a530_pfp.fw",
@@ -623,7 +614,6 @@ static const struct adreno_a5xx_core adreno_gpu_core_a508 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_128K + SZ_8K),
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.pm4fw_name = "a530_pm4.fw",
 	.pfpfw_name = "a530_pfp.fw",
@@ -798,7 +788,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a630v2 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_1M,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.gmu_major = 1,
@@ -898,7 +887,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a615 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = 600 * SZ_1K,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.gmu_major = 1,
@@ -926,7 +914,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a618 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.gmu_major = 1,
@@ -954,7 +941,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a619 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.gmu_major = 1,
@@ -981,7 +967,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a619_variant = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.sqefw_name = "a630_sqe.fw",
@@ -1113,7 +1098,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a620 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = 2 * SZ_1M,
 	},
 	.prim_fifo_threshold = 0x0010000,
 	.gmu_major = 2,
@@ -1144,7 +1128,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a621 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = 2 * SZ_1M,
 	},
 	.prim_fifo_threshold = 0x0010000,
 	.gmu_major = 2,
@@ -1236,7 +1219,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a640 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_1M, //Verified 1MB
 		.bus_width = 32,
-		.snapshot_size = 2 * SZ_1M,
 	},
 	.prim_fifo_threshold = 0x00200000,
 	.gmu_major = 2,
@@ -1316,7 +1298,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a650 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_128K, /* verified 1152kB */
 		.bus_width = 32,
-		.snapshot_size = 2 * SZ_1M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1347,7 +1328,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a650v2 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_128K, /* verified 1152kB */
 		.bus_width = 32,
-		.snapshot_size = 2 * SZ_1M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1375,7 +1355,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a680 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_2M,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.prim_fifo_threshold = 0x00400000,
 	.gmu_major = 2,
@@ -1452,7 +1431,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a612 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_128K + SZ_4K),
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.prim_fifo_threshold = 0x00080000,
 	.sqefw_name = "a630_sqe.fw",
@@ -1478,7 +1456,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a616 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_1M,
 	},
 	.prim_fifo_threshold = 0x0018000,
 	.gmu_major = 1,
@@ -1628,7 +1605,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a660 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1661,7 +1637,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a660v2 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1694,7 +1669,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a660_shima = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1725,7 +1699,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a635 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00200000,
 	.gmu_major = 2,
@@ -1758,7 +1731,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a662 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_1M + SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00300000,
 	.gmu_major = 2,
@@ -1789,7 +1761,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_gen6_3_26_0 = {
 		.uche_gmem_alignment = SZ_1M,
 		.gmem_size = (SZ_128K + SZ_4K),
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.prim_fifo_threshold = 0x00080000,
 	.sqefw_name = "a630_sqe.fw",
@@ -1802,9 +1773,8 @@ static const struct adreno_a6xx_core adreno_gpu_core_gen6_3_26_0 = {
 	.protected_regs = a630_protected_regs,
 	.highest_bank_bit = 15,
 };
+#endif
 
-extern const struct gen7_snapshot_block_list gen7_0_0_snapshot_block_list;
-extern const struct gen7_snapshot_block_list gen7_3_0_snapshot_block_list;
 
 static const struct kgsl_regmap_list gen7_0_0_gbif_regs[] = {
 	{ GEN7_GBIF_QSB_SIDE0, 0x00071620 },
@@ -1934,7 +1904,6 @@ static const struct kgsl_regmap_list gen7_3_0_hwcg_regs[] = {
 	{ GEN7_RBBM_CLOCK_HYST_GMU_GX, 0x00000555 },
 };
 
-extern const struct gen7_snapshot_block_list gen7_6_0_snapshot_block_list;
 
 static const struct kgsl_regmap_list gen7_6_0_hwcg_regs[] = {
 	{ GEN7_RBBM_CLOCK_CNTL_SP0, 0x02222222 },
@@ -2058,7 +2027,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_0_0 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_2M,
 		.bus_width = 32,
-		.snapshot_size = SZ_4M,
 	},
 	.gmu_fw_version = GMU_VERSION(4, 0, 0),
 	.sqefw_name = "a730_sqe.fw",
@@ -2072,7 +2040,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_0_0 = {
 	.hang_detect_cycles = 0xcfffff,
 	.protected_regs = gen7_0_0_protected_regs,
 	.highest_bank_bit = 16,
-	.gen7_snapshot_block_list = &gen7_0_0_snapshot_block_list,
 	.fast_bus_hint = true,
 };
 
@@ -2091,7 +2058,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_0_1 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_2M,
 		.bus_width = 32,
-		.snapshot_size = SZ_4M,
 	},
 	.gmu_fw_version = GMU_VERSION(4, 0, 0),
 	.sqefw_name = "a730_sqe.fw",
@@ -2105,7 +2071,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_0_1 = {
 	.hang_detect_cycles = 0xcfffff,
 	.protected_regs = gen7_0_0_protected_regs,
 	.highest_bank_bit = 16,
-	.gen7_snapshot_block_list = &gen7_0_0_snapshot_block_list,
 	.fast_bus_hint = true,
 };
 
@@ -2123,7 +2088,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_4_0 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_2M,
 		.bus_width = 32,
-		.snapshot_size = SZ_4M,
 	},
 	.gmu_fw_version = GMU_VERSION(4, 0, 7),
 	.sqefw_name = "a730_sqe.fw",
@@ -2137,7 +2101,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_4_0 = {
 	.hang_detect_cycles = 0xcfffff,
 	.protected_regs = gen7_0_0_protected_regs,
 	.highest_bank_bit = 16,
-	.gen7_snapshot_block_list = &gen7_0_0_snapshot_block_list,
 	.fast_bus_hint = true,
 };
 
@@ -2155,7 +2118,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_3_0 = {
 		.uche_gmem_alignment = 0,
 		.gmem_size = SZ_512K,
 		.bus_width = 32,
-		.snapshot_size = SZ_2M,
 	},
 	.gmu_fw_version = GMU_VERSION(4, 0, 0),
 	.sqefw_name = "a710_sqe.fw",
@@ -2168,7 +2130,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_3_0 = {
 	.hang_detect_cycles = 0xcfffff,
 	.protected_regs = gen7_0_0_protected_regs,
 	.highest_bank_bit = 15,
-	.gen7_snapshot_block_list = &gen7_3_0_snapshot_block_list,
 };
 
 static const struct adreno_gen7_core adreno_gpu_core_gen7_6_0 = {
@@ -2185,7 +2146,6 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_6_0 = {
 		.uche_gmem_alignment = SZ_16M,
 		.gmem_size = 3 * SZ_1M,
 		.bus_width = 32,
-		.snapshot_size = SZ_4M,
 	},
 	.gmu_fw_version = GMU_VERSION(4, 1, 9),
 	.sqefw_name = "a740v3_sqe.fw",
@@ -2200,11 +2160,11 @@ static const struct adreno_gen7_core adreno_gpu_core_gen7_6_0 = {
 	.highest_bank_bit = 16,
 	.gmu_hub_clk_freq = 200000000,
 	.bcl_data = 1,
-	.gen7_snapshot_block_list = &gen7_6_0_snapshot_block_list,
 	.qos_value = gen7_6_0_gbif_client_qos_values,
 };
 
 static const struct adreno_gpu_core *adreno_gpulist[] = {
+#if 0
 	&adreno_gpu_core_a306.base,
 	&adreno_gpu_core_a306a.base,
 	&adreno_gpu_core_a304.base,
@@ -2242,9 +2202,10 @@ static const struct adreno_gpu_core *adreno_gpulist[] = {
 	&adreno_gpu_core_a610.base,
 	&adreno_gpu_core_a660_shima.base,
 	&adreno_gpu_core_gen6_3_26_0.base,
+#endif
 	&adreno_gpu_core_gen7_0_0.base,
 	&adreno_gpu_core_gen7_0_1.base,
-	&adreno_gpu_core_a662.base,
+//	&adreno_gpu_core_a662.base,
 	&adreno_gpu_core_gen7_4_0.base,
 	&adreno_gpu_core_gen7_3_0.base,
 	&adreno_gpu_core_gen7_6_0.base,

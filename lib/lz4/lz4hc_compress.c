@@ -613,16 +613,17 @@ int LZ4_compress_HC(const char *src, char *dst, int srcSize,
 }
 EXPORT_SYMBOL(LZ4_compress_HC);
 
+#if 0
 /**************************************
  *	Streaming Functions
  **************************************/
-void LZ4_resetStreamHC(LZ4_streamHC_t *LZ4_streamHCPtr, int compressionLevel)
+static void LZ4_resetStreamHC(LZ4_streamHC_t *LZ4_streamHCPtr, int compressionLevel)
 {
 	LZ4_streamHCPtr->internal_donotuse.base = NULL;
 	LZ4_streamHCPtr->internal_donotuse.compressionLevel = (unsigned int)compressionLevel;
 }
 
-int LZ4_loadDictHC(LZ4_streamHC_t *LZ4_streamHCPtr,
+static int LZ4_loadDictHC(LZ4_streamHC_t *LZ4_streamHCPtr,
 	const char *dictionary,
 	int dictSize)
 {
@@ -638,7 +639,6 @@ int LZ4_loadDictHC(LZ4_streamHC_t *LZ4_streamHCPtr,
 	ctxPtr->end = (const BYTE *)dictionary + dictSize;
 	return dictSize;
 }
-EXPORT_SYMBOL(LZ4_loadDictHC);
 
 /* compression */
 
@@ -713,7 +713,7 @@ static int LZ4_compressHC_continue_generic(
 		inputSize, maxOutputSize, ctxPtr->compressionLevel, limit);
 }
 
-int LZ4_compress_HC_continue(
+static int LZ4_compress_HC_continue(
 	LZ4_streamHC_t *LZ4_streamHCPtr,
 	const char *source,
 	char *dest,
@@ -727,11 +727,9 @@ int LZ4_compress_HC_continue(
 		return LZ4_compressHC_continue_generic(LZ4_streamHCPtr,
 			source, dest, inputSize, maxOutputSize, noLimit);
 }
-EXPORT_SYMBOL(LZ4_compress_HC_continue);
 
 /* dictionary saving */
-
-int LZ4_saveDictHC(
+static int LZ4_saveDictHC(
 	LZ4_streamHC_t *LZ4_streamHCPtr,
 	char *safeBuffer,
 	int dictSize)
@@ -762,7 +760,7 @@ int LZ4_saveDictHC(
 	}
 	return dictSize;
 }
-EXPORT_SYMBOL(LZ4_saveDictHC);
+#endif
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("LZ4 HC compressor");

@@ -709,7 +709,7 @@ static void calculation_time_fun(int type)
 }
 
 static int write_test_value = 0;
-static void update_battery_safe()
+static void update_battery_safe(void)
 {
     int rc;
     int temp;

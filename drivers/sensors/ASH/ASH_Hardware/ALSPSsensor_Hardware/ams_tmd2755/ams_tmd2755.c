@@ -255,7 +255,7 @@ MODULE_DEVICE_TABLE(of, tmd2755_of_match);
 
 #endif /* CONFIG_OF */
 
-static int tmd2755_ALSPS_hw_get_interrupt()
+static int tmd2755_ALSPS_hw_get_interrupt(void)
 {
 	u8 status;
 	int ret;

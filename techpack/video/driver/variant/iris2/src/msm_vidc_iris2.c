@@ -542,13 +542,6 @@ disable_power:
 		d_vpr_e("%s: disable unprepare vcodec_clk failed\n", __func__);
 		rc = 0;
 	}
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
-		rc = __disable_unprepare_clock_iris2(core, "video_mvs0_axi_clk");
-		if (rc) {
-			d_vpr_e("%s: disable unprepare video_mvs0_axi_clk failed\n", __func__);
-			rc = 0;
-		}
-	}
 
 	return rc;
 }
@@ -619,15 +612,6 @@ skip_aon_mvp_noc:
 		return rc;
 #endif
 
-	/* Disable VIDEO_CC_VENUS_AHB_CLK clock */
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
-		rc = __disable_unprepare_clock_iris2(core, "iface_clk");
-		if (rc) {
-			d_vpr_e("%s: disable unprepare iface_clk failed\n", __func__);
-			rc = 0;
-		}
-	}
-
 	/* Turn off MVP MVS0C core clock */
 	rc = __disable_unprepare_clock_iris2(core, "core_clk");
 	if (rc) {
@@ -635,10 +619,10 @@ skip_aon_mvp_noc:
 		rc = 0;
 	}
 
-	/* Disable VIDEO_CTL_AXI0_CLK clock */
-	rc = __disable_unprepare_clock_iris2(core, "video_ctl_axi0_clk");
+	/* Disable GCC_VIDEO_AXI0_CLK clock */
+	rc = __disable_unprepare_clock_iris2(core, "gcc_video_axi0");
 	if (rc) {
-		d_vpr_e("%s: disable unprepare video_ctl_axi0_clk failed\n", __func__);
+		d_vpr_e("%s: disable unprepare gcc_video_axi0 failed\n", __func__);
 		rc = 0;
 	}
 
@@ -708,7 +692,7 @@ static int __power_on_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_reset_ahb2axi;
 
-	rc = __prepare_enable_clock_iris2(core, "video_ctl_axi0_clk");
+	rc = __prepare_enable_clock_iris2(core, "gcc_video_axi0");
 	if (rc)
 		goto fail_clk_axi;
 
@@ -716,18 +700,10 @@ static int __power_on_iris2_controller(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_clk_controller;
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
-		rc = __prepare_enable_clock_iris2(core, "iface_clk");
-		if (rc)
-			goto fail_iface_clk;
-	}
-
 	return 0;
 
-fail_iface_clk:
-	__disable_unprepare_clock_iris2(core, "core_clk");
 fail_clk_controller:
-	__disable_unprepare_clock_iris2(core, "video_ctl_axi0_clk");
+	__disable_unprepare_clock_iris2(core, "gcc_video_axi0");
 fail_clk_axi:
 fail_reset_ahb2axi:
 	__disable_regulator_iris2(core, "iris-ctl");
@@ -743,12 +719,6 @@ static int __power_on_iris2_hardware(struct msm_vidc_core *core)
 	if (rc)
 		goto fail_regulator;
 
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1) {
-		rc = __prepare_enable_clock_iris2(core, "video_mvs0_axi_clk");
-		if (rc)
-			goto fail_clk_axi;
-	}
-
 	rc = __prepare_enable_clock_iris2(core, "vcodec_clk");
 	if (rc)
 		goto fail_clk_controller;
@@ -756,9 +726,6 @@ static int __power_on_iris2_hardware(struct msm_vidc_core *core)
 	return 0;
 
 fail_clk_controller:
-	if (core->platform->data.vpu_ver == VPU_VERSION_IRIS2_1)
-		__disable_unprepare_clock_iris2(core, "video_mvs0_axi_clk");
-fail_clk_axi:
 	__disable_regulator_iris2(core, "vcodec");
 fail_regulator:
 	return rc;
@@ -767,11 +734,6 @@ fail_regulator:
 static int __power_on_iris2(struct msm_vidc_core *core)
 {
 	int rc = 0;
-
-	if (!core || !core->platform) {
-		d_vpr_e("%s: invalid params\n", __func__);
-		return -EINVAL;
-	}
 
 	if (core->power_enabled)
 		return 0;

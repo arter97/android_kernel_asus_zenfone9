@@ -31,7 +31,7 @@ int ipa_hw_stats_init(void)
 {
 	int ret = 0, ep_index;
 	struct ipa_teth_stats_endpoints *teth_stats_init;
-	u32 reg_idx;
+	u32 reg_idx = 0;
 	u32 mask = 0;
 
 	if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
@@ -450,7 +450,7 @@ static void ipa_close_coal_frame(struct ipahal_imm_cmd_pyld **coal_cmd_pyld)
 {
 	int i;
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	u32 offset = 0;
 
 	i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);

@@ -40,6 +40,37 @@ static bool completed;
  * You can also use this as an ignorelist.
  */
 static const __initconst char * const blacklist[] = {
+	// Custom load order
+	"hdcp",
+
+	// Disabled
+	"asix",
+	"ax88179_178a",
+	"expandmem",
+	"f_fs_ipc_log",
+	"ktop",
+	"msm_rtb",
+	"msm_show_resume_irq",
+	"ns",
+	"phy_qcom_ufs_qmp_v4_diwali",
+	"phy_qcom_ufs_qmp_v4_lahaina",
+	"phy_qcom_ufs_qmp_v4_waipio",
+	"qbt_handler",
+	"qca6490",
+	"qcom_ipc_logging",
+	"qcom_logbuf_vendor_hooks",
+	"rimps_log",
+	"sla",
+	"texfat",
+	"tfs_linux",
+	"tntfs",
+	"wcd937x_dlkm",
+	"wcd937x_slave_dlkm",
+
+	// Renamed
+	"hdcp_qseecom",
+	"ssusb_redriver_nb7vpq904m",
+
 	NULL
 };
 
@@ -50,6 +81,18 @@ static const __initconst char * const blacklist[] = {
  * Add them here.
  */
 static const __initconst char * const deferred_list[] = {
+	"nb7vpq904m",
+	"spss_utils",
+	"spcom",
+
+	// Workaround broken ASUS's drm_check_dt() hacks
+	"focaltech_fts_3658u",
+	"gf3626_spi",
+	"hall_sensor_1",
+	"hall_sensor",
+	"hall_sensor_3nd",
+	"hall_sensor_2nd",
+
 	NULL
 };
 

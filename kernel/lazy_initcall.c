@@ -5,704 +5,31 @@
  * Partially based on kernel/module.c.
  */
 
-#ifdef CONFIG_LAZY_INITCALL_DEBUG
-#define DEBUG
-#define __fatal pr_err
-#else
-#define __fatal panic
-#endif
+//#define DEBUG
 
 #define pr_fmt(fmt) "lazy_initcall: " fmt
+#define LAZY_INITCALL_INTERNAL
 
+#include <linux/printk.h>
 #include <linux/syscalls.h>
 #include <linux/kmemleak.h>
 #include <uapi/linux/module.h>
+#include <uapi/linux/time.h>
 
 #include "module-internal.h"
 
-#ifdef CONFIG_LAZY_INITCALL_DEBUG
-static void __init show_unused_modules(struct work_struct *unused);
-static __initdata DECLARE_DELAYED_WORK(show_unused_work, show_unused_modules);
-#endif
+static void __init show_errors(struct work_struct *unused);
+static __initdata DECLARE_DELAYED_WORK(show_errors_work, show_errors);
 static DEFINE_MUTEX(lazy_initcall_mutex);
 static bool completed;
 
 /*
- * Why is this here, instead of defconfig?
+ * Number of lazy modules.
  *
- * Data used in defconfig isn't freed in free_initmem() and putting a list this
- * big into the defconfig isn't really ideal anyways.
- *
- * Since lazy_initcall isn't meant to be generic, set this here.
- *
- * This list is generatable by putting .ko modules from vendor, vendor_boot and
- * vendor_dlkm to a directory and running the following:
- *
- * MODDIR=/path/to/modules
- * find "$MODDIR" -name '*.ko' -exec modinfo {} + | grep '^name:' | awk '{print $2}' | sort | uniq | while read f; do printf '\t"'$f'",\n'; done
- * find "$MODDIR" -name '*.ko' | while read f; do if ! modinfo $f | grep -q "^name:"; then n=$(basename $f); n="${n%.*}"; printf '\t"'$n'",\n'; fi; done | sort | uniq
+ * Memory allocated from this is freed later anyways, so a large value
+ * is not going to hog the memory down the road.
  */
-
-static const __initconst char * const targets_list[] = {
-	"adsp_loader_dlkm",
-	"adsp_sleepmon",
-	"altmode_glink",
-	"arm_smmu",
-	"asix",
-	"asus_battery_charger_AI2202",
-	"atmel_mxt_ts",
-	"audio_pkt_dlkm",
-	"audio_prm_dlkm",
-	"audpkt_ion_dlkm",
-	"ax88179_178a",
-	"bam_dma",
-	"bcl_pmic5",
-	"bcl_soc",
-	"boot_stats",
-	"bt_fm_slim",
-	"btpower",
-	"bwmon",
-	"c1dcvs_scmi",
-	"c1dcvs_vendor",
-	"camcc_diwali",
-	"camcc_waipio",
-	"camera",
-	"cdsp_loader",
-	"cdsprm",
-	"cfg80211",
-	"charger_ulog_glink",
-	"clk_dummy",
-	"clk_qcom",
-	"clk_rpmh",
-	"cmd_db",
-	"cnss2",
-	"cnss_nl",
-	"cnss_plat_ipc_qmi_svc",
-	"cnss_prealloc",
-	"cnss_utils",
-	"core_hang_detect",
-	"coresight",
-	"coresight_csr",
-	"coresight_cti",
-	"coresight_dummy",
-	"coresight_funnel",
-	"coresight_hwevent",
-	"coresight_remote_etm",
-	"coresight_replicator",
-	"coresight_stm",
-	"coresight_tgu",
-	"coresight_tmc",
-	"coresight_tpda",
-	"coresight_tpdm",
-	"cpu_hotplug",
-	"cpu_voltage_cooling",
-	"cqhci",
-	"crypto_qti_common",
-	"crypto_qti_hwkm",
-	"dcc_v2",
-	"dcvs_fp",
-	"ddr_cdev",
-	"debugcc_diwali",
-	"debugcc_waipio",
-	"debug_regulator",
-	"dispcc_diwali",
-	"dispcc_waipio",
-	"dwc3_msm",
-	"ehset",
-	"ep_pcie_drv",
-	"expandmem",
-	"extcon_asus_core",
-	"f_fs_ipc_log",
-	"focaltech_fts_3658u",
-	"frpc_adsprpc",
-	"fsa4480_i2c",
-	"gcc_diwali",
-	"gcc_waipio",
-	"gdsc_regulator",
-	"gf3626_spi",
-	"gh_arm_drv",
-	"gh_ctrl",
-	"gh_dbl",
-	"gh_irq_lend",
-	"gh_mem_notifier",
-	"gh_msgq",
-	"gh_rm_drv",
-	"gh_virtio_backend",
-	"gh_virt_wdt",
-	"glink_pkt",
-	"glink_probe",
-	"gpi",
-	"gplaf_scmi",
-	"gplaf_vendor",
-	"gpr_dlkm",
-	"gpucc_diwali",
-	"gpucc_waipio",
-	"gsim",
-	"guestvm_loader",
-	"hall_sensor",
-	"hall_sensor_1",
-	"hall_sensor_2nd",
-	"hall_sensor_3nd",
-	"hdcp_qseecom",
-	"hdmi_dlkm",
-	"heap_mem_ext_v01",
-	"hung_task_enh",
-	"hvc_gunyah",
-	"hwkm",
-	"hyp_core_ctl",
-	"i2c_msm_geni",
-	"i3c_master_msm_geni",
-	"icc_bcm_voter",
-	"icc_debug",
-	"icc_rpmh",
-	"icc_test",
-	"icnss2",
-	"iommu_logger",
-	"ipa_clientsm",
-	"ipa_fmwk",
-	"ipam",
-	"ipanetm",
-	"kryo_arm64_edac",
-	"ktop",
-	"leds_qpnp_vibrator_ldo",
-	"leds_qti_flash",
-	"leds_qti_tri_led",
-	"llcc_perfmon",
-	"llcc_qcom",
-	"lpass_cdc_dlkm",
-	"lpass_cdc_rx_macro_dlkm",
-	"lpass_cdc_tx_macro_dlkm",
-	"lpass_cdc_va_macro_dlkm",
-	"lpass_cdc_wsa2_macro_dlkm",
-	"lpass_cdc_wsa_macro_dlkm",
-	"lt9611uxc",
-	"lvstest",
-	"mac80211",
-	"machine_dlkm",
-	"mbhc_dlkm",
-	"mdt_loader",
-	"mem_buf",
-	"mem_buf_dev",
-	"mem_hooks",
-	"memlat",
-	"memory_dump_v2",
-	"mhi",
-	"mhi_cntrl_qcom",
-	"mhi_dev_drv",
-	"mhi_dev_dtr",
-	"mhi_dev_net",
-	"mhi_dev_netdev",
-	"mhi_dev_uci",
-	"microdump_collector",
-	"minidump",
-	"mmrm_test_module",
-	"msm_cvp",
-	"msm_dma_iommu_mapping",
-	"msm_drm",
-	"msm_eva",
-	"msm_ext_display",
-	"msm_geni_se",
-	"msm_geni_serial",
-	"msm_kgsl",
-	"msm_lmh_dcvs",
-	"msm_memshare",
-	"msm_mmrm",
-	"msm_performance",
-	"msm_qmp",
-	"msm_rng",
-	"msm_rtb",
-	"msm_sharedmem",
-	"msm_show_epoch",
-	"msm_show_resume_irq",
-	"msm_sysstats",
-	"msm_video",
-	"ns",
-	"nt36xxx_i2c",
-	"nt36xxx_spi",
-	"nvmem_qcom_spmi_sdam",
-	"nvmem_qfprom",
-	"p73",
-	"panel_event_notifier",
-	"pci_edma",
-	"pci_msm_drv",
-	"pdr_interface",
-	"phy_generic",
-	"phy_msm_snps_eusb2",
-	"phy_msm_snps_hs",
-	"phy_msm_ssusb_qmp",
-	"phy_qcom_emu",
-	"phy_qcom_ufs",
-	"phy_qcom_ufs_qmp_14nm",
-	"phy_qcom_ufs_qmp_v3",
-	"phy_qcom_ufs_qmp_v4_cape",
-	"phy_qcom_ufs_qmp_v4_diwali",
-	"phy_qcom_ufs_qmp_v4_lahaina",
-	"phy_qcom_ufs_qmp_v4_waipio",
-	"pinctrl_cape",
-	"pinctrl_diwali",
-	"pinctrl_lpi_dlkm",
-	"pinctrl_msm",
-	"pinctrl_spmi_gpio",
-	"pinctrl_spmi_mpp",
-	"pinctrl_waipio",
-	"plh_scmi",
-	"plh_vendor",
-	"pm8941_pwrkey",
-	"pmic_glink",
-	"pmic_pon_log",
-	"pmu_scmi",
-	"pmu_vendor",
-	"pn553",
-	"policy_engine",
-	"proxy_consumer",
-	"pwm_qti_lpg",
-	"q6_dlkm",
-	"q6_notifier_dlkm",
-	"q6_pdr_dlkm",
-	"qbt_handler",
-	"qca6490",
-	"qce50",
-	"qcedev_mod",
-	"qcom_aoss",
-	"qcom_cpufreq_hw",
-	"qcom_cpufreq_hw_debug",
-	"qcom_cpuss_sleep_stats",
-	"qcom_cpu_vendor_hooks",
-	"qcom_dcvs",
-	"qcom_dload_mode",
-	"qcom_dma_heaps",
-	"qcom_edac",
-	"qcom_esoc",
-	"qcom_gic_intr_routing",
-	"qcom_glink",
-	"qcom_glink_smem",
-	"qcom_glink_spss",
-	"qcom_hv_haptics",
-	"qcom_hwspinlock",
-	"qcom_i2c_pmic",
-	"qcom_iommu_debug",
-	"qcom_iommu_util",
-	"qcom_ipcc",
-	"qcom_ipc_lite",
-	"qcom_ipc_logging",
-	"qcom_llcc_pmu",
-	"qcom_logbuf_vendor_hooks",
-	"qcom_lpm",
-	"qcom_pdc",
-	"qcom_pil_info",
-	"qcom_pm8008_regulator",
-	"qcom_pmu_lib",
-	"qcom_pon",
-	"qcom_q6v5",
-	"qcom_q6v5_pas",
-	"qcom_ramdump",
-	"qcom_reboot_reason",
-	"qcom_rimps",
-	"qcom_rpmh",
-	"qcom_scm",
-	"qcom_smd",
-	"qcom_soc_wdt",
-	"qcom_spmi_adc5",
-	"qcom_spmi_pmic",
-	"qcom_spmi_temp_alarm",
-	"qcom_spss",
-	"qcom_sync_file",
-	"qcom_sysmon",
-	"qcom_tsens",
-	"qcom_vadc_common",
-	"qcom_wdt_core",
-	"qdss_bridge",
-	"qfprom_sys",
-	"qmi_helpers",
-	"qnoc_diwali",
-	"qnoc_parrot",
-	"qnoc_qos",
-	"qnoc_waipio",
-	"qpnp_amoled_regulator",
-	"qpnp_pbs",
-	"qrtr",
-	"qrtr_gunyah",
-	"qrtr_mhi",
-	"qrtr_smd",
-	"qseecom_mod",
-	"qsee_ipc_irq_bridge",
-	"qti_adc_tm",
-	"qti_amoled_ecm",
-	"qti_battery_charge_notify",
-	"qti_battery_charger",
-	"qti_battery_debug",
-	"qti_cpufreq_cdev",
-	"qti_devfreq_cdev",
-	"qti_fixed_regulator",
-	"qti_qmi_cdev",
-	"qti_qmi_sensor_v2",
-	"qti_regmap_debugfs",
-	"qti_userspace_cdev",
-	"radio_i2c_rtc6226_qca",
-	"rdbg",
-	"reboot_mode",
-	"regmap_spmi",
-	"repeater",
-	"repeater_i2c_eusb2",
-	"rimps_log",
-	"rmnet_aps",
-	"rmnet_core",
-	"rmnet_ctl",
-	"rmnet_offload",
-	"rmnet_perf",
-	"rmnet_perf_tether",
-	"rmnet_sch",
-	"rmnet_shs",
-	"rmnet_wlan",
-	"rndisipam",
-	"rpmh_regulator",
-	"rproc_qcom_common",
-	"rq_stats",
-	"rtc_pm8xxx",
-	"sched_walt",
-	"sdhci_msm",
-	"sdpm_clk",
-	"secure_buffer",
-	"sensors_ssc",
-	"sensors_vcnl36866",
-	"sla",
-	"slimbus",
-	"slim_qcom_ngd_ctrl",
-	"smcinvoke_mod",
-	"smem",
-	"smp2p",
-	"smp2p_sleepstate",
-	"snd_event_dlkm",
-	"snd_usb_audio_qmi",
-	"socinfo",
-	"soc_sleep_stats",
-	"spf_core_dlkm",
-	"spi_msm_geni",
-	"spmi_glink_debug",
-	"spmi_pmic_arb",
-	"spmi_pmic_arb_debug",
-	"sps_drv",
-	"ssusb_redriver_nb7vpq904m",
-	"stm_console",
-	"stm_core",
-	"stm_ftrace",
-	"stm_p_basic",
-	"stm_p_ost",
-	"stub_dlkm",
-	"stub_regulator",
-	"subsystem_sleep_stats",
-	"swr_ctrl_dlkm",
-	"swr_dlkm",
-	"swr_dmic_dlkm",
-	"synaptics_dsx",
-	"synx_driver",
-	"sysmon_subsystem_stats",
-	"sys_pm_vx",
-	"texfat",
-	"tfs_linux",
-	"thermal_pause",
-	"tmecom_intf",
-	"tntfs",
-	"tz_log",
-	"ucsi_glink",
-	"ufshcd_crypto_qti",
-	"ufs_qcom",
-	"usb_bam",
-	"usb_f_ccid",
-	"usb_f_cdev",
-	"usb_f_diag",
-	"usb_f_gsi",
-	"usb_f_qdss",
-	"videocc_diwali",
-	"videocc_waipio",
-	"wcd937x_dlkm",
-	"wcd937x_slave_dlkm",
-	"wcd938x_dlkm",
-	"wcd938x_slave_dlkm",
-	"wcd9xxx_dlkm",
-	"wcd_core_dlkm",
-	"wlan_firmware_service",
-	"wsa883x_dlkm",
-	"zram",
-	"hwmon",
-	"lzo",
-	"lzo-rle",
-	"sg",
-	"zsmalloc",
-	NULL
-};
-
-/*
- * Some drivers don't have module_init(), which will lead to lookup failure
- * from lazy_initcall when a module with the same name is asked to be loaded
- * from the userspace.
- *
- * Lazy initcall can optionally maintain a list of kernel drivers built into
- * the kernel that matches the name from the firmware so that those aren't
- * treated as errors.
- *
- * Ew, is this the best approach?
- *
- * Detecting the presense of .init.text section or initcall_t function is
- * unreliable as .init.text might not exist when a driver doesn't use __init
- * and modpost adds an empty .init stub even if a driver doesn't declare a
- * function for module_init().
- *
- * This list is generatable by putting .ko modules from vendor, vendor_boot and
- * vendor_dlkm to a directory, cd'ing to kernel's O directory and running the
- * following:
- *
- * MODDIR=/path/to/modules
- * find -name '*.o' | tr '-' '_' > list
- * find "$MODDIR" -name '*.ko' -exec modinfo {} + | grep '^name:' | awk '{print $2}' | sort | uniq | while read f; do if grep -q /"$f".o list; then printf '\t"'$f'",\n'; fi; done
- */
-static const __initconst char * const builtin_list[] = {
-	"adsp_sleepmon",
-	"altmode_glink",
-	"arm_smmu",
-	"asus_battery_charger_AI2202",
-	"atmel_mxt_ts",
-	"ax88179_178a",
-	"bam_dma",
-	"bcl_pmic5",
-	"bcl_soc",
-	"boot_stats",
-	"btpower",
-	"bwmon",
-	"c1dcvs_scmi",
-	"c1dcvs_vendor",
-	"camcc_diwali",
-	"camcc_waipio",
-	"cdsp_loader",
-	"cdsprm",
-	"charger_ulog_glink",
-	"clk_dummy",
-	"clk_rpmh",
-	"cmd_db",
-	"cnss_nl",
-	"cnss_prealloc",
-	"cnss_utils",
-	"core_hang_detect",
-	"coresight_csr",
-	"coresight_dummy",
-	"coresight_funnel",
-	"coresight_hwevent",
-	"coresight_remote_etm",
-	"coresight_replicator",
-	"coresight_stm",
-	"coresight_tgu",
-	"coresight_tpda",
-	"coresight_tpdm",
-	"cpu_hotplug",
-	"cpu_voltage_cooling",
-	"crypto_qti_common",
-	"crypto_qti_hwkm",
-	"dcc_v2",
-	"dcvs_fp",
-	"ddr_cdev",
-	"debugcc_diwali",
-	"debugcc_waipio",
-	"debug_regulator",
-	"dispcc_diwali",
-	"dispcc_waipio",
-	"dwc3_msm",
-	"ehset",
-	"f_fs_ipc_log",
-	"fsa4480_i2c",
-	"gcc_diwali",
-	"gcc_waipio",
-	"gdsc_regulator",
-	"gh_ctrl",
-	"gh_dbl",
-	"gh_irq_lend",
-	"gh_mem_notifier",
-	"gh_msgq",
-	"gh_virtio_backend",
-	"gh_virt_wdt",
-	"glink_pkt",
-	"glink_probe",
-	"gpi",
-	"gplaf_scmi",
-	"gplaf_vendor",
-	"gpucc_diwali",
-	"gpucc_waipio",
-	"guestvm_loader",
-	"hall_sensor",
-	"hall_sensor_1",
-	"hall_sensor_2nd",
-	"hall_sensor_3nd",
-	"hdcp_qseecom",
-	"heap_mem_ext_v01",
-	"hung_task_enh",
-	"hvc_gunyah",
-	"hwkm",
-	"hyp_core_ctl",
-	"i2c_msm_geni",
-	"i3c_master_msm_geni",
-	"icc_debug",
-	"icc_rpmh",
-	"iommu_logger",
-	"ipa_fmwk",
-	"kryo_arm64_edac",
-	"leds_qpnp_vibrator_ldo",
-	"leds_qti_flash",
-	"leds_qti_tri_led",
-	"llcc_qcom",
-	"lt9611uxc",
-	"lvstest",
-	"mac80211",
-	"mdt_loader",
-	"mem_buf",
-	"mem_buf_dev",
-	"mem_hooks",
-	"memlat",
-	"memory_dump_v2",
-	"mhi",
-	"mhi_dev_net",
-	"microdump_collector",
-	"msm_cvp",
-	"msm_dma_iommu_mapping",
-	"msm_ext_display",
-	"msm_geni_se",
-	"msm_geni_serial",
-	"msm_lmh_dcvs",
-	"msm_memshare",
-	"msm_mmrm",
-	"msm_performance",
-	"msm_qmp",
-	"msm_rng",
-	"msm_rtb",
-	"msm_sharedmem",
-	"msm_show_epoch",
-	"msm_show_resume_irq",
-	"msm_sysstats",
-	"ns",
-	"nt36xxx_spi",
-	"panel_event_notifier",
-	"pci_edma",
-	"pdr_interface",
-	"phy_generic",
-	"phy_msm_snps_eusb2",
-	"phy_msm_snps_hs",
-	"phy_msm_ssusb_qmp",
-	"phy_qcom_emu",
-	"phy_qcom_ufs",
-	"phy_qcom_ufs_qmp_14nm",
-	"phy_qcom_ufs_qmp_v3",
-	"phy_qcom_ufs_qmp_v4_cape",
-	"phy_qcom_ufs_qmp_v4_diwali",
-	"phy_qcom_ufs_qmp_v4_lahaina",
-	"phy_qcom_ufs_qmp_v4_waipio",
-	"pinctrl_cape",
-	"pinctrl_diwali",
-	"pinctrl_msm",
-	"pinctrl_spmi_gpio",
-	"pinctrl_spmi_mpp",
-	"pinctrl_waipio",
-	"plh_scmi",
-	"plh_vendor",
-	"pm8941_pwrkey",
-	"pmic_glink",
-	"pmic_pon_log",
-	"pmu_scmi",
-	"pmu_vendor",
-	"policy_engine",
-	"proxy_consumer",
-	"pwm_qti_lpg",
-	"qce50",
-	"qcom_aoss",
-	"qcom_cpufreq_hw",
-	"qcom_cpufreq_hw_debug",
-	"qcom_cpuss_sleep_stats",
-	"qcom_cpu_vendor_hooks",
-	"qcom_dload_mode",
-	"qcom_edac",
-	"qcom_gic_intr_routing",
-	"qcom_glink_smem",
-	"qcom_glink_spss",
-	"qcom_hv_haptics",
-	"qcom_hwspinlock",
-	"qcom_i2c_pmic",
-	"qcom_iommu_debug",
-	"qcom_iommu_util",
-	"qcom_ipcc",
-	"qcom_ipc_lite",
-	"qcom_llcc_pmu",
-	"qcom_lpm",
-	"qcom_pdc",
-	"qcom_pil_info",
-	"qcom_pm8008_regulator",
-	"qcom_pon",
-	"qcom_q6v5",
-	"qcom_q6v5_pas",
-	"qcom_ramdump",
-	"qcom_reboot_reason",
-	"qcom_rimps",
-	"qcom_scm",
-	"qcom_smd",
-	"qcom_soc_wdt",
-	"qcom_spmi_adc5",
-	"qcom_spmi_pmic",
-	"qcom_spmi_temp_alarm",
-	"qcom_spss",
-	"qcom_sync_file",
-	"qcom_sysmon",
-	"qcom_vadc_common",
-	"qcom_wdt_core",
-	"qdss_bridge",
-	"qfprom_sys",
-	"qmi_helpers",
-	"qnoc_qos",
-	"qpnp_amoled_regulator",
-	"qpnp_pbs",
-	"qrtr",
-	"qsee_ipc_irq_bridge",
-	"qti_amoled_ecm",
-	"qti_battery_charge_notify",
-	"qti_battery_charger",
-	"qti_battery_debug",
-	"qti_cpufreq_cdev",
-	"qti_devfreq_cdev",
-	"qti_fixed_regulator",
-	"qti_regmap_debugfs",
-	"qti_userspace_cdev",
-	"rdbg",
-	"reboot_mode",
-	"regmap_spmi",
-	"repeater",
-	"repeater_i2c_eusb2",
-	"rimps_log",
-	"rpmh_regulator",
-	"rq_stats",
-	"rtc_pm8xxx",
-	"sdhci_msm",
-	"sdpm_clk",
-	"secure_buffer",
-	"sensors_ssc",
-	"smem",
-	"smp2p",
-	"smp2p_sleepstate",
-	"socinfo",
-	"soc_sleep_stats",
-	"spi_msm_geni",
-	"spmi_glink_debug",
-	"spmi_pmic_arb",
-	"spmi_pmic_arb_debug",
-	"ssusb_redriver_nb7vpq904m",
-	"stub_regulator",
-	"subsystem_sleep_stats",
-	"sysmon_subsystem_stats",
-	"sys_pm_vx",
-	"thermal_pause",
-	"tz_log",
-	"ucsi_glink",
-	"ufshcd_crypto_qti",
-	"ufs_qcom",
-	"usb_bam",
-	"videocc_diwali",
-	"videocc_waipio",
-	NULL,
-};
+#define MODULE_LIST_LIMIT 1024
 
 /*
  * Some drivers behave differently when it's built-in, so deferring its
@@ -713,32 +40,6 @@ static const __initconst char * const builtin_list[] = {
  * You can also use this as an ignorelist.
  */
 static const __initconst char * const blacklist[] = {
-	// Module behavior differences
-	"cfg80211",
-	"mac80211",
-	"hwmon",
-
-	// Name difference
-	"cqhci",
-	"lzo_rle",
-	"snd_event_dlkm",
-
-	// Redundant modules
-	"qca6750",
-	"kiwi",
-	"wcd937x_dlkm",
-	"wcd937x_slave_dlkm",
-
-	// Disabled modules
-	"expandmem",
-	"ktop",
-	"qbt_handler",
-	"qcom_logbuf_vendor_hooks",
-	"sla",
-	"texfat",
-	"tfs_linux",
-	"tntfs",
-
 	NULL
 };
 
@@ -752,13 +53,22 @@ static const __initconst char * const deferred_list[] = {
 	NULL
 };
 
-static struct lazy_initcall __initdata lazy_initcalls[ARRAY_SIZE(targets_list) - ARRAY_SIZE(blacklist) + ARRAY_SIZE(deferred_list)];
+static struct lazy_initcall __initdata lazy_initcalls[MODULE_LIST_LIMIT];
 static int __initdata counter;
+
+static char __initdata errors_str[16 * 1024];
+
+#define __err(...) do { \
+	size_t len = strlen(errors_str); \
+	char *ptr = errors_str + len; \
+	snprintf(ptr, sizeof(errors_str) - len, __VA_ARGS__); \
+	smp_mb(); \
+	pr_err("%s", ptr); \
+} while (0)
 
 bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 {
 	int i;
-	bool match = false;
 	enum lazy_initcall_type type = NORMAL;
 
 	for (i = 0; blacklist[i]; i++) {
@@ -766,27 +76,24 @@ bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 			return false;
 	}
 
-	for (i = 0; targets_list[i]; i++) {
-		if (!strcmp(targets_list[i], modname)) {
-			match = true;
-			break;
-		}
-	}
-
 	for (i = 0; deferred_list[i]; i++) {
 		if (!strcmp(deferred_list[i], modname)) {
-			match = true;
 			type = DEFERRED;
 			break;
 		}
 	}
 
-	if (!match)
-		return false;
+	// Check for duplicates
+	for (i = 0; i < counter; i++) {
+		if (!strcmp(lazy_initcalls[i].modname, modname)) {
+			__err("duplicate module detected: %s - %s\n", modname, filename);
+			__err("enable DEBUG from %s to debug further\n", __FILE__);
+		}
+	}
 
 	mutex_lock(&lazy_initcall_mutex);
 
-	pr_info("adding lazy_initcalls[%d] from %s - %s\n",
+	pr_debug("adding lazy_initcalls[%d] from %s - %s\n",
 				counter, modname, filename);
 
 	lazy_initcalls[counter].fn = fn;
@@ -800,26 +107,102 @@ bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 	return true;
 }
 
-#ifdef CONFIG_LAZY_INITCALL_DEBUG
-static void __init show_unused_modules(struct work_struct *unused)
+static bool __init show_errors_str(void)
+{
+	char *s, *p, *tok;
+
+	if (strlen(errors_str) == 0)
+		return false;
+
+	s = kstrdup(errors_str, GFP_KERNEL);
+	if (!s)
+		return true;
+
+	for (p = s; (tok = strsep(&p, "\n")) != NULL; )
+		if (tok[0] != '\0')
+			pr_err("%s\n", tok);
+
+	kfree(s);
+
+	return true;
+}
+
+static void __init show_errors(struct work_struct *unused)
 {
 	int i;
 
+	// Start printing only after 30s of uptime
+	if (ktime_to_us(ktime_get_boottime()) < 30 * USEC_PER_SEC)
+		goto out;
+
+	show_errors_str();
+
 	for (i = 0; i < counter; i++) {
 		if (!lazy_initcalls[i].loaded) {
-			pr_info("lazy_initcalls[%d]: %s not loaded yet\n", i, lazy_initcalls[i].modname);
+			pr_err("lazy_initcalls[%d]: %s not loaded yet\n", i, lazy_initcalls[i].modname);
 		}
 	}
 
+out:
 	queue_delayed_work(system_freezable_power_efficient_wq,
-			&show_unused_work, 5 * HZ);
+			&show_errors_work, 5 * HZ);
 }
-#endif
 
-static noinline void __init load_modname(const char * const modname)
+static int __init unknown_integrated_module_param_cb(char *param, char *val,
+					      const char *modname, void *arg)
+{
+	__err("%s: unknown parameter '%s' ignored\n", modname, param);
+	return 0;
+}
+
+static int __init integrated_module_param_cb(char *param, char *val,
+				      const char *modname, void *arg)
+{
+	size_t nlen, plen, vlen;
+	char *modparam;
+
+	nlen = strlen(modname);
+	plen = strlen(param);
+	vlen = val ? strlen(val) : 0;
+	if (vlen)
+		/* Parameter formatted as "modname.param=val" */
+		modparam = kmalloc(nlen + plen + vlen + 3, GFP_KERNEL);
+	else
+		/* Parameter formatted as "modname.param" */
+		modparam = kmalloc(nlen + plen + 2, GFP_KERNEL);
+	if (!modparam) {
+		pr_err("%s: allocation failed for module '%s' parameter '%s'\n",
+		       __func__, modname, param);
+		return 0;
+	}
+
+	/* Construct the correct parameter name for the built-in module */
+	memcpy(modparam, modname, nlen);
+	modparam[nlen] = '.';
+	memcpy(&modparam[nlen + 1], param, plen);
+	if (vlen) {
+		modparam[nlen + 1 + plen] = '=';
+		memcpy(&modparam[nlen + 1 + plen + 1], val, vlen);
+		modparam[nlen + 1 + plen + 1 + vlen] = '\0';
+	} else {
+		modparam[nlen + 1 + plen] = '\0';
+	}
+
+	/* Now have parse_args() look for the correct parameter name */
+	parse_args(modname, modparam, __start___param,
+		   __stop___param - __start___param,
+		   -32768, 32767, NULL,
+		   unknown_integrated_module_param_cb);
+	kfree(modparam);
+	return 0;
+}
+
+static noinline void __init load_modname(const char * const modname, const char __user *uargs,
+					 enum lazy_initcall_type type)
 {
 	int i, ret;
 	bool match = false;
+	char *args;
 	initcall_t fn;
 
 	pr_debug("trying to load \"%s\"\n", modname);
@@ -840,25 +223,67 @@ static noinline void __init load_modname(const char * const modname)
 				pr_debug("lazy_initcalls[%d]: %s already loaded\n", i, modname);
 				return;
 			}
-			lazy_initcalls[i].loaded = true;
 			match = true;
 			break;
 		}
 	}
 
-	// Unable to find the driver that the userspace requested
-	if (!match) {
-		// Check if this module is built-in without module_init()
-		for (i = 0; builtin_list[i]; i++) {
-			if (!strcmp(builtin_list[i], modname))
-				return;
-		}
-		__fatal("failed to find a built-in module with the name \"%s\"\n", modname);
+	// Check if the driver is deferred
+	if (lazy_initcalls[i].type != type) {
+		pr_info("deferring \"%s\"\n", modname);
 		return;
 	}
 
+	// Unable to find the driver that the userspace requested
+	if (!match) {
+		// Check if this module is built-in without module_init()
+		char kmod[MODULE_NAME_LEN + 24];
+		void *found;
+
+		snprintf(kmod, sizeof(kmod), "__mod_present__kmod_%s__", modname);
+		found = (void *)kallsyms_lookup_name(kmod);
+		if (found != NULL)
+			return;
+
+		__err("failed to find a built-in module with the name \"%s\"\n", modname);
+		return;
+	}
+
+	// Setup args
+	if (uargs != NULL) {
+		args = strndup_user(uargs, ~0UL >> 1);
+		if (IS_ERR(args)) {
+			pr_err("failed to parse args: %d\n", PTR_ERR(args));
+		} else {
+			/*
+			 * Parameter parsing is done in two steps for integrated modules
+			 * because built-in modules have their parameter names set as
+			 * "modname.param", which means that each parameter name in the
+			 * arguments must have "modname." prepended to it, or it won't
+			 * be found.
+			 *
+			 * Since parse_args() has a lot of complex logic for actually
+			 * parsing out arguments, do parsing in two parse_args() steps.
+			 * The first step just makes parse_args() parse out each
+			 * parameter/value pair and then pass it to
+			 * integrated_module_param_cb(), which builds the correct
+			 * parameter name for the built-in module and runs parse_args()
+			 * for real. This means that parse_args() recurses, but the
+			 * recursion is fixed because integrated_module_param_cb()
+			 * passes a different unknown handler,
+			 * unknown_integrated_module_param_cb().
+			 */
+			if (*args)
+				parse_args(modname, args, NULL, 0, 0, 0, NULL,
+					   integrated_module_param_cb);
+		}
+	}
+
 	ret = fn();
-	pr_info("lazy_initcalls[%d]: %s's init function returned %d\n", i, modname, ret);
+	if (ret != 0)
+		__err("lazy_initcalls[%d]: %s's init function returned %d\n", i, modname, ret);
+
+	lazy_initcalls[i].loaded = true;
 
 	// Check if all modules are loaded so that __init memory can be released
 	match = false;
@@ -867,13 +292,12 @@ static noinline void __init load_modname(const char * const modname)
 			match = true;
 	}
 
-#ifdef CONFIG_LAZY_INITCALL_DEBUG
 	if (!match)
-		cancel_delayed_work_sync(&show_unused_work);
+		cancel_delayed_work_sync(&show_errors_work);
 	else
 		queue_delayed_work(system_freezable_power_efficient_wq,
-				&show_unused_work, 5 * HZ);
-#endif
+				&show_errors_work, 5 * HZ);
+
 	if (!match)
 		WRITE_ONCE(completed, true);
 
@@ -903,7 +327,7 @@ static noinline int __init __load_module(struct load_info *info, const char __us
 	if (err)
 		goto err;
 
-	load_modname(info->name);
+	load_modname(info->name, uargs, NORMAL);
 
 err:
 	free_copy(info);
@@ -930,9 +354,11 @@ static int __ref load_module(struct load_info *info, const char __user *uargs,
 			pr_info("all userspace modules loaded, now loading built-in deferred drivers\n");
 
 			for (i = 0; deferred_list[i]; i++)
-				load_modname(deferred_list[i]);
+				load_modname(deferred_list[i], NULL, DEFERRED);
 		}
 		pr_info("all modules loaded, calling free_initmem()\n");
+		if (show_errors_str())
+			WARN(1, "all modules loaded with errors, review if necessary");
 		free_initmem();
 		mark_readonly();
 	}

@@ -64,6 +64,7 @@ struct battery_chg_dev {
 	struct pmic_glink_client	*client;
 	struct typec_role_class		*typec_class;
 	struct mutex			rw_lock;
+	struct rw_semaphore		state_sem;
 	struct completion		ack;
 	struct completion		fw_buf_ack;
 	struct completion		fw_update_ack;
@@ -100,6 +101,7 @@ struct battery_chg_dev {
 	/* To track the driver initialization status */
 	bool				initialized;
 	bool				notify_en;
+	bool				error_prop;
 };
 
 int asuslib_init(void);

@@ -41,32 +41,34 @@ config ARM64
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_HAVE_ELF_PROT
 	select ARCH_HAVE_NMI_SAFE_CMPXCHG
-	select ARCH_INLINE_READ_LOCK if !PREEMPTION
-	select ARCH_INLINE_READ_LOCK_BH if !PREEMPTION
-	select ARCH_INLINE_READ_LOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_READ_LOCK_IRQSAVE if !PREEMPTION
-	select ARCH_INLINE_READ_UNLOCK if !PREEMPTION
-	select ARCH_INLINE_READ_UNLOCK_BH if !PREEMPTION
-	select ARCH_INLINE_READ_UNLOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE if !PREEMPTION
-	select ARCH_INLINE_WRITE_LOCK if !PREEMPTION
-	select ARCH_INLINE_WRITE_LOCK_BH if !PREEMPTION
-	select ARCH_INLINE_WRITE_LOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_WRITE_LOCK_IRQSAVE if !PREEMPTION
-	select ARCH_INLINE_WRITE_UNLOCK if !PREEMPTION
-	select ARCH_INLINE_WRITE_UNLOCK_BH if !PREEMPTION
-	select ARCH_INLINE_WRITE_UNLOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE if !PREEMPTION
-	select ARCH_INLINE_SPIN_TRYLOCK if !PREEMPTION
-	select ARCH_INLINE_SPIN_TRYLOCK_BH if !PREEMPTION
-	select ARCH_INLINE_SPIN_LOCK if !PREEMPTION
-	select ARCH_INLINE_SPIN_LOCK_BH if !PREEMPTION
-	select ARCH_INLINE_SPIN_LOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_SPIN_LOCK_IRQSAVE if !PREEMPTION
-	select ARCH_INLINE_SPIN_UNLOCK if !PREEMPTION
-	select ARCH_INLINE_SPIN_UNLOCK_BH if !PREEMPTION
-	select ARCH_INLINE_SPIN_UNLOCK_IRQ if !PREEMPTION
-	select ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE if !PREEMPTION
+	select ARCH_INLINE_READ_TRYLOCK
+	select ARCH_INLINE_READ_LOCK
+	select ARCH_INLINE_READ_LOCK_BH
+	select ARCH_INLINE_READ_LOCK_IRQ
+	select ARCH_INLINE_READ_LOCK_IRQSAVE
+	select ARCH_INLINE_READ_UNLOCK
+	select ARCH_INLINE_READ_UNLOCK_BH
+	select ARCH_INLINE_READ_UNLOCK_IRQ
+	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE
+	select ARCH_INLINE_WRITE_TRYLOCK
+	select ARCH_INLINE_WRITE_LOCK
+	select ARCH_INLINE_WRITE_LOCK_BH
+	select ARCH_INLINE_WRITE_LOCK_IRQ
+	select ARCH_INLINE_WRITE_LOCK_IRQSAVE
+	select ARCH_INLINE_WRITE_UNLOCK
+	select ARCH_INLINE_WRITE_UNLOCK_BH
+	select ARCH_INLINE_WRITE_UNLOCK_IRQ
+	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE
+	select ARCH_INLINE_SPIN_TRYLOCK
+	select ARCH_INLINE_SPIN_TRYLOCK_BH
+	select ARCH_INLINE_SPIN_LOCK
+	select ARCH_INLINE_SPIN_LOCK_BH
+	select ARCH_INLINE_SPIN_LOCK_IRQ
+	select ARCH_INLINE_SPIN_LOCK_IRQSAVE
+	select ARCH_INLINE_SPIN_UNLOCK
+	select ARCH_INLINE_SPIN_UNLOCK_BH
+	select ARCH_INLINE_SPIN_UNLOCK_IRQ
+	select ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE
 	select ARCH_KEEP_MEMBLOCK
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_USE_GNU_PROPERTY
@@ -731,6 +733,29 @@ config ARM64_ERRATUM_2067961
 	  Workaround is to issue two TSB consecutively on affected cores.
 
 	  If unsure, say Y.
+
+config ARM64_ERRATUM_2454944
+	bool "Cortex-A510: 2454944: Unmodified cache line might be written back to memory"
+	select ARCH_HAS_TEARDOWN_DMA_OPS
+	select RODATA_FULL_DEFAULT_ENABLED
+	help
+	  This option adds the workaround for ARM Cortex-A510 erratum 2454944.
+
+	  Affected Cortex-A510 core might write unmodified cache lines back to
+	  memory, which breaks the assumptions upon which software coherency
+	  management for non-coherent DMA relies. If a cache line is
+	  speculatively fetched while a non-coherent device is writing directly
+	  to DRAM, and subsequently written back by natural eviction, data
+	  written by the device in the intervening period can be lost.
+
+	  The workaround is to enforce as far as reasonably possible that all
+	  non-coherent DMA transfers are bounced and/or remapped to minimise
+	  the chance that any Cacheable alias exists through which speculative
+	  cache fills could occur. To further improve effectiveness of
+	  the workaround, lazy TLB flushing should be disabled.
+
+	  This is quite involved and has unavoidable performance impact on
+	  affected systems.
 
 config ARM64_ERRATUM_2457168
 	bool "Cortex-A510: 2457168: workaround for AMEVCNTR01 incrementing incorrectly"

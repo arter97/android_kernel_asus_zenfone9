@@ -92,6 +92,7 @@ enum cnss_driver_status {
 	CNSS_FW_DOWN,
 	CNSS_HANG_EVENT,
 	CNSS_BUS_EVENT,
+	CNSS_SYS_REBOOT,
 };
 
 enum cnss_bus_event_type {
@@ -310,4 +311,7 @@ extern int cnss_pci_get_reg_dump(struct device *dev, uint8_t *buffer,
 				 uint32_t len);
 extern bool cnss_get_fw_cap(struct device *dev, enum cnss_fw_caps fw_cap);
 extern int cnss_set_wfc_mode(struct device *dev, struct cnss_wfc_cfg cfg);
+extern int cnss_update_time_sync_period(struct device *dev,
+					 uint32_t time_sync_period);
+extern int cnss_reset_time_sync_period(struct device *dev);
 #endif /* _NET_CNSS2_H */

@@ -25,8 +25,14 @@ KBUILD_CPPFLAGS += -DASUS_AI2202_PROJECT=1
 endif
 
 ifeq ($(CONFIG_ARCH_NEO), y)
+ifeq ($(CONFIG_TARGET), neo_le)
+	include $(DISPLAY_ROOT)/config/gki_neoledisp.conf
+	LINUX_INC +=	-include $(DISPLAY_ROOT)/config/gki_neoledispconf.h
+endif
+ifeq ($(CONFIG_TARGET), neo_la)
 	include $(DISPLAY_ROOT)/config/gki_neodisp.conf
 	LINUX_INC +=	-include $(DISPLAY_ROOT)/config/gki_neodispconf.h
+endif
 endif
 
 ifeq ($(CONFIG_ARCH_PARROT), y)
@@ -100,7 +106,7 @@ CDEFINES += -DMULTI_IF_NAME=\"$(CHIP_NAME)\"
 endif
 
 ######### CONFIG_DRM_MSM ########
-obj-$(CONFIG_DRM_MSM) += msm_drm.o
+obj-m += msm_drm.o
 
 msm_drm-$(CONFIG_HDCP_QSEECOM) := ../hdcp/msm_hdcp.o
 

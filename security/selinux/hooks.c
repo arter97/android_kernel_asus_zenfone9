@@ -1330,22 +1330,17 @@ static int selinux_genfs_get_sid(struct dentry *dentry,
 static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
 				  u32 def_sid, u32 *sid)
 {
-#define INITCONTEXTLEN 255
-	char *context;
+	char buf[SELINUX_LABEL_LENGTH + 1];
+	char *context = buf;
 	unsigned int len;
 	int rc;
 
-	len = INITCONTEXTLEN;
-	context = kmalloc(len + 1, GFP_NOFS);
-	if (!context)
-		return -ENOMEM;
-
+	len = SELINUX_LABEL_LENGTH;
 	context[len] = '\0';
+
 	rc = __vfs_getxattr(dentry, inode, XATTR_NAME_SELINUX, context, len,
 			    XATTR_NOSECURITY);
-	if (rc == -ERANGE) {
-		kfree(context);
-
+	if (unlikely(rc == -ERANGE)) {
 		/* Need a larger buffer.  Query for the right size. */
 		rc = __vfs_getxattr(dentry, inode, XATTR_NAME_SELINUX, NULL, 0,
 				    XATTR_NOSECURITY);
@@ -1362,7 +1357,8 @@ static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
 				    context, len, XATTR_NOSECURITY);
 	}
 	if (rc < 0) {
-		kfree(context);
+		if (unlikely(context != buf))
+			kfree(context);
 		if (rc != -ENODATA) {
 			pr_warn("SELinux: %s:  getxattr returned %d for dev=%s ino=%ld\n",
 				__func__, -rc, inode->i_sb->s_id, inode->i_ino);
@@ -1386,7 +1382,8 @@ static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
 				__func__, context, -rc, dev, ino);
 		}
 	}
-	kfree(context);
+	if (unlikely(context != buf))
+		kfree(context);
 	return 0;
 }
 
@@ -3403,6 +3400,7 @@ static int selinux_inode_getsecurity(struct inode *inode, const char *name, void
 {
 	u32 size;
 	int error;
+	char buf[SELINUX_LABEL_LENGTH];
 	char *context = NULL;
 	struct inode_security_struct *isec;
 
@@ -3424,22 +3422,33 @@ static int selinux_inode_getsecurity(struct inode *inode, const char *name, void
 	 * in-core context value, not a denial.
 	 */
 	isec = inode_security(inode);
-	if (has_cap_mac_admin(false))
-		error = security_sid_to_context_force(&selinux_state,
-						      isec->sid, &context,
-						      &size);
-	else
-		error = security_sid_to_context(&selinux_state, isec->sid,
-						&context, &size);
+	if (!alloc)
+		context = buf;
+	if (has_cap_mac_admin(false)) {
+		if (alloc) {
+			error = security_sid_to_context_force(&selinux_state,
+							      isec->sid, &context,
+							      &size);
+		} else {
+			error = security_sid_to_context_force_stack(&selinux_state,
+							      isec->sid, &context,
+							      &size);
+		}
+	} else {
+		if (alloc) {
+			error = security_sid_to_context(&selinux_state, isec->sid,
+							&context, &size);
+		} else {
+			error = security_sid_to_context_stack(&selinux_state, isec->sid,
+							&context, &size);
+		}
+	}
 	if (error)
 		return error;
 	error = size;
-	if (alloc) {
+	if (alloc)
 		*buffer = context;
-		goto out_nofree;
-	}
-	kfree(context);
-out_nofree:
+
 	return error;
 }
 
@@ -5141,7 +5150,8 @@ static int selinux_socket_getpeersec_stream(struct socket *sock, char __user *op
 					    int __user *optlen, unsigned len)
 {
 	int err = 0;
-	char *scontext;
+	char buf[SELINUX_LABEL_LENGTH];
+	char *scontext = buf;
 	u32 scontext_len;
 	struct sk_security_struct *sksec = sock->sk->sk_security;
 	u32 peer_sid = SECSID_NULL;
@@ -5153,7 +5163,7 @@ static int selinux_socket_getpeersec_stream(struct socket *sock, char __user *op
 	if (peer_sid == SECSID_NULL)
 		return -ENOPROTOOPT;
 
-	err = security_sid_to_context(&selinux_state, peer_sid, &scontext,
+	err = security_sid_to_context_stack(&selinux_state, peer_sid, &scontext,
 				      &scontext_len);
 	if (err)
 		return err;
@@ -5169,7 +5179,7 @@ static int selinux_socket_getpeersec_stream(struct socket *sock, char __user *op
 out_len:
 	if (put_user(scontext_len, optlen))
 		err = -EFAULT;
-	kfree(scontext);
+
 	return err;
 }
 
@@ -5203,17 +5213,15 @@ out:
 
 static int selinux_sk_alloc_security(struct sock *sk, int family, gfp_t priority)
 {
-	struct sk_security_struct *sksec;
+	struct sk_security_struct *sksec = sk->sk_security;
 
-	sksec = kzalloc(sizeof(*sksec), priority);
-	if (!sksec)
-		return -ENOMEM;
-
+#ifdef CONFIG_NETLABEL
+	memset(sksec, 0, offsetof(struct sk_security_struct, sid));
+#endif
 	sksec->peer_sid = SECINITSID_UNLABELED;
 	sksec->sid = SECINITSID_UNLABELED;
 	sksec->sclass = SECCLASS_SOCKET;
 	selinux_netlbl_sk_security_reset(sksec);
-	sk->sk_security = sksec;
 
 	return 0;
 }
@@ -5222,14 +5230,12 @@ static void selinux_sk_free_security(struct sock *sk)
 {
 	struct sk_security_struct *sksec = sk->sk_security;
 
-	sk->sk_security = NULL;
 	selinux_netlbl_sk_security_free(sksec);
-	kfree(sksec);
 }
 
 static void selinux_sk_clone_security(const struct sock *sk, struct sock *newsk)
 {
-	struct sk_security_struct *sksec = sk->sk_security;
+	const struct sk_security_struct *sksec = sk->sk_security;
 	struct sk_security_struct *newsksec = newsk->sk_security;
 
 	newsksec->sid = sksec->sid;

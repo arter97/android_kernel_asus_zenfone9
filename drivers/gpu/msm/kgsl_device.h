@@ -1,14 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2002,2007-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef __KGSL_DEVICE_H
 #define __KGSL_DEVICE_H
 
 #include <linux/sched/mm.h>
 #include <linux/sched/task.h>
-#include <trace/events/gpu_mem.h>
 
 #include "kgsl.h"
 #include "kgsl_drawobj.h"
@@ -166,6 +165,8 @@ struct kgsl_functable {
 		struct kgsl_context *context);
 	/** @create_hw_fence: Create a hardware fence */
 	void (*create_hw_fence)(struct kgsl_device *device, struct kgsl_sync_fence *kfence);
+	/** @register_gdsc_notifier: Target specific function to register gdsc notifier */
+	int (*register_gdsc_notifier)(struct kgsl_device *device);
 };
 
 struct kgsl_ioctl {
@@ -233,8 +234,6 @@ struct kgsl_device {
 	uint32_t requested_state;
 
 	atomic_t active_cnt;
-	/** @total_mapped: To trace overall gpu memory usage */
-	atomic64_t total_mapped;
 
 	wait_queue_head_t active_cnt_wq;
 	struct platform_device *pdev;
@@ -321,6 +320,23 @@ struct kgsl_device {
 	int freq_limiter_intr_num;
 	/** @bcl_data_kobj: Kobj for bcl_data sysfs node */
 	struct kobject bcl_data_kobj;
+	/** @idle_jiffies: Latest idle jiffies */
+	unsigned long idle_jiffies;
+
+	/** @work_period_timer: Timer to capture application GPU work stats */
+	struct timer_list work_period_timer;
+	/** work_period_lock: Lock to protect process application GPU work periods */
+	spinlock_t work_period_lock;
+	/** work_period_ws: Worker thread to emulate application GPU work event */
+	struct work_struct work_period_ws;
+	/** @flags: Flags for gpu_period stats */
+	unsigned long flags;
+	struct {
+		u64 begin;
+		u64 end;
+	} gpu_period;
+	/** @dump_all_ibs: Whether to dump all ibs in snapshot */
+	bool dump_all_ibs;
 };
 
 #define KGSL_MMU_DEVICE(_mmu) \
@@ -498,6 +514,8 @@ struct kgsl_process_private {
 	 * @reclaim_lock: Mutex lock to protect KGSL_PROC_PINNED_STATE
 	 */
 	struct mutex reclaim_lock;
+	/** @period: Stats for GPU utilization */
+	struct gpu_work_period *period;
 	/**
 	 * @cmd_count: The number of cmds that are active for the process
 	 */
@@ -607,6 +625,18 @@ static inline void kgsl_regread(struct kgsl_device *device,
 	*value = kgsl_regmap_read(&device->regmap, offsetwords);
 }
 
+static inline void kgsl_regread64(struct kgsl_device *device,
+				u32 offsetwords_lo, u32 offsetwords_hi,
+				u64 *value)
+{
+	u32 val_lo = 0, val_hi = 0;
+
+	val_lo = kgsl_regmap_read(&device->regmap, offsetwords_lo);
+	val_hi = kgsl_regmap_read(&device->regmap, offsetwords_hi);
+
+	*value = (((u64)val_hi << 32) | val_lo);
+}
+
 static inline void kgsl_regwrite(struct kgsl_device *device,
 				 unsigned int offsetwords,
 				 unsigned int value)
@@ -641,8 +671,8 @@ static inline bool kgsl_state_is_nap_or_minbw(struct kgsl_device *device)
  */
 static inline void kgsl_start_idle_timer(struct kgsl_device *device)
 {
-	mod_timer(&device->idle_timer,
-			jiffies + msecs_to_jiffies(device->pwrctrl.interval_timeout));
+	device->idle_jiffies = jiffies + msecs_to_jiffies(device->pwrctrl.interval_timeout);
+	mod_timer(&device->idle_timer, device->idle_jiffies);
 }
 
 int kgsl_readtimestamp(struct kgsl_device *device, void *priv,
@@ -1027,26 +1057,6 @@ int kgsl_add_fault(struct kgsl_context *context, u32 type, void *priv);
  * @context: Pointer to the KGSL context
  */
 void kgsl_free_faults(struct kgsl_context *context);
-
-/**
- * kgsl_trace_gpu_mem_total - Overall gpu memory usage tracking which includes
- * process allocations, imported dmabufs and kgsl globals
- * @device: A KGSL device handle
- * @delta: delta of total mapped memory size
- */
-#ifdef CONFIG_TRACE_GPU_MEM
-static inline void kgsl_trace_gpu_mem_total(struct kgsl_device *device,
-						s64 delta)
-{
-	u64 total_size;
-
-	total_size = atomic64_add_return(delta, &device->total_mapped);
-	trace_gpu_mem_total(0, 0, total_size);
-}
-#else
-static inline void kgsl_trace_gpu_mem_total(struct kgsl_device *device,
-						s64 delta) {}
-#endif
 
 /*
  * kgsl_context_is_lpac() - Checks if context is LPAC

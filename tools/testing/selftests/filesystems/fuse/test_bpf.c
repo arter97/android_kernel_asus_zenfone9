@@ -35,7 +35,7 @@ inline int strcmp(const char *a, const char *b)
 }
 SEC("test_readdir_redact")
 /* return FUSE_BPF_BACKING to use backing fs, 0 to pass to usermode */
-int readdir_test(struct fuse_bpf_args *fa)
+int readdir_test(struct fuse_args *fa)
 {
 	switch (fa->opcode) {
 	case FUSE_READDIR | FUSE_PREFILTER: {
@@ -60,7 +60,7 @@ int readdir_test(struct fuse_bpf_args *fa)
 SEC("test_trace")
 
 /* return FUSE_BPF_BACKING to use backing fs, 0 to pass to usermode */
-int trace_test(struct fuse_bpf_args *fa)
+int trace_test(struct fuse_args *fa)
 {
 	switch (fa->opcode) {
 	case FUSE_LOOKUP | FUSE_PREFILTER: {
@@ -361,7 +361,7 @@ int trace_test(struct fuse_bpf_args *fa)
 
 SEC("test_hidden")
 
-int trace_hidden(struct fuse_bpf_args *fa)
+int trace_hidden(struct fuse_args *fa)
 {
 	switch (fa->opcode) {
 	case FUSE_LOOKUP | FUSE_PREFILTER: {
@@ -418,7 +418,7 @@ int trace_hidden(struct fuse_bpf_args *fa)
 }
 
 SEC("test_simple")
-int trace_simple(struct fuse_bpf_args *fa)
+int trace_simple(struct fuse_args *fa)
 {
 	if (fa->opcode & FUSE_PREFILTER)
 		bpf_printk("prefilter opcode: %d",
@@ -432,7 +432,7 @@ int trace_simple(struct fuse_bpf_args *fa)
 }
 
 SEC("test_passthrough")
-int trace_daemon(struct fuse_bpf_args *fa)
+int trace_daemon(struct fuse_args *fa)
 {
 	switch (fa->opcode) {
 	case FUSE_LOOKUP | FUSE_PREFILTER: {
@@ -468,7 +468,7 @@ int trace_daemon(struct fuse_bpf_args *fa)
 SEC("test_error")
 
 /* return FUSE_BPF_BACKING to use backing fs, 0 to pass to usermode */
-int error_test(struct fuse_bpf_args *fa)
+int error_test(struct fuse_args *fa)
 {
 	switch (fa->opcode) {
 	case FUSE_MKDIR | FUSE_PREFILTER: {
@@ -533,6 +533,54 @@ int lookuppostfilter_test(struct fuse_bpf_args *fa)
 		return FUSE_BPF_BACKING | FUSE_BPF_POST_FILTER;
 	case FUSE_LOOKUP | FUSE_POSTFILTER:
 		return FUSE_BPF_USER_FILTER;
+	default:
+		return FUSE_BPF_BACKING;
+	}
+}
+
+SEC("test_create_remove")
+int createremovebpf_test(struct fuse_bpf_args *fa)
+{
+	switch (fa->opcode) {
+	case FUSE_LOOKUP | FUSE_PREFILTER: {
+		return FUSE_BPF_BACKING | FUSE_BPF_POST_FILTER;
+	}
+
+	case FUSE_LOOKUP | FUSE_POSTFILTER: {
+		struct fuse_entry_bpf_out *febo = fa->out_args[1].value;
+
+		febo->bpf_action = FUSE_ACTION_REMOVE;
+		return 0;
+	}
+
+	case FUSE_OPEN | FUSE_PREFILTER: {
+		return -EIO;
+	}
+
+	default:
+		return FUSE_BPF_BACKING;
+	}
+}
+
+SEC("test_mkdir_remove")
+int mkdirremovebpf_test(struct fuse_bpf_args *fa)
+{
+	switch (fa->opcode) {
+	case FUSE_LOOKUP | FUSE_PREFILTER: {
+		return FUSE_BPF_BACKING | FUSE_BPF_POST_FILTER;
+	}
+
+	case FUSE_LOOKUP | FUSE_POSTFILTER: {
+		struct fuse_entry_bpf_out *febo = fa->out_args[1].value;
+
+		febo->bpf_action = FUSE_ACTION_REMOVE;
+		return 0;
+	}
+
+	case FUSE_OPENDIR | FUSE_PREFILTER: {
+		return -EIO;
+	}
+
 	default:
 		return FUSE_BPF_BACKING;
 	}

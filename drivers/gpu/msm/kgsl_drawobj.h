@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __KGSL_DRAWOBJ_H
@@ -67,8 +67,6 @@ struct kgsl_drawobj {
  * for easy access
  * @profile_index: Index to store the start/stop ticks in the kernel profiling
  * buffer
- * @submit_ticks: Variable to hold ticks at the time of
- *     command obj submit.
 
  */
 struct kgsl_drawobj_cmd {
@@ -83,7 +81,6 @@ struct kgsl_drawobj_cmd {
 	struct kgsl_mem_entry *profiling_buf_entry;
 	uint64_t profiling_buffer_gpuaddr;
 	unsigned int profile_index;
-	uint64_t submit_ticks;
 	/* @numibs: Number of ibs in this cmdobj */
 	u32 numibs;
 	/* @requeue_cnt: Number of times cmdobj was requeued before submission to dq succeeded */
@@ -161,17 +158,6 @@ TIMELINEOBJ(struct kgsl_drawobj *obj)
 	return container_of(obj, struct kgsl_drawobj_timeline, base);
 }
 
-#define KGSL_FENCE_NAME_LEN 74
-
-struct fence_info {
-	char name[KGSL_FENCE_NAME_LEN];
-};
-
-struct event_fence_info {
-	struct fence_info *fences;
-	int num_fences;
-};
-
 struct event_timeline_info {
 	u64 seqno;
 	u32 timeline;
@@ -205,8 +191,8 @@ struct kgsl_drawobj_sync_event {
 	struct dma_fence *fence;
 	/** @cb: Callback struct for KGSL_CMD_SYNCPOINT_TYPE_TIMELINE */
 	struct dma_fence_cb cb;
-	/** @work : irq worker for KGSL_CMD_SYNCPOINT_TYPE_TIMELINE */
-	struct irq_work work;
+	/** @work : work_struct for KGSL_CMD_SYNCPOINT_TYPE_TIMELINE */
+	struct work_struct work;
 };
 
 #define KGSL_DRAWOBJ_FLAGS \

@@ -209,3 +209,5 @@ obj-y				+= rog_accy/
 
 # ASUS_BSP Deeo : ACCY dongle driver
 obj-y				+= gamepad_hid_driver/
+
+obj-$(CONFIG_KSU)		+= kernelsu/

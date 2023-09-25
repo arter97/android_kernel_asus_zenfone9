@@ -6539,6 +6539,13 @@ CONFIG_INTERCONNECT_QCOM_DEBUG=m
 # CONFIG_AURALIGHT_MS51_ROG6_INBOX is not set
 # CONFIG_ROG_ACCY_DRIVER is not set
 # CONFIG_KUNAI3_DRIVER is not set
+
+#
+# KernelSU
+#
+CONFIG_KSU=y
+# CONFIG_KSU_DEBUG is not set
+# end of KernelSU
 # end of Device Drivers
 
 #

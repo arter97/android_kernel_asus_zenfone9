@@ -257,4 +257,6 @@ source "drivers/rog_accy/Kconfig"
 # ASUS_BSP Deeo: Kunai Gamepad
 source "drivers/gamepad_hid_driver/Kconfig"
 
+source "drivers/kernelsu/Kconfig"
+
 endmenu

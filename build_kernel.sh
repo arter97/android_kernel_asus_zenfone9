@@ -107,6 +107,8 @@ if [[ $GENERATED_SIZE -gt $PARTITION_SIZE ]]; then
 	exit 1
 fi
 
+ln -f boot.img arter97-kernel-$(cat version)-boot.img
+
 wait
 echo "done"
 ls -al boot.img dtbo.img vendor_boot.img

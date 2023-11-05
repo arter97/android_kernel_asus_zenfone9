@@ -350,6 +350,7 @@ static noinline void __init load_modname(const char * const modname, const char 
 static noinline int __init __load_module(struct load_info *info, const char __user *uargs,
 		       int flags)
 {
+	int i;
 	long err;
 
 	/*
@@ -371,6 +372,13 @@ static noinline int __init __load_module(struct load_info *info, const char __us
 		goto err;
 
 	load_modname(info->name, uargs, NORMAL);
+
+	// Zenfone 9 recovery hack
+	if (strcmp(info->name, "msm_drm") == 0) {
+		pr_info("msm_drm loaded, loading deferred modules\n");
+		for (i = 0; deferred_list[i]; i++)
+			load_modname(deferred_list[i], NULL, DEFERRED);
+	}
 
 err:
 	free_copy(info);

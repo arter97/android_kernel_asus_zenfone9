@@ -1615,7 +1615,7 @@ static int __cam_isp_ctx_handle_buf_done_for_request(
 				ctx_isp->isp_device_type,
 				req_isp->fence_map_out[j].resource_handle);
 
-			CAM_WARN(CAM_ISP,
+			CAM_DBG(CAM_ISP,
 				"Duplicate BUF_DONE for req %lld : i=%d, j=%d, res=%s",
 				req->request_id, i, j, handle_type);
 
@@ -1876,7 +1876,7 @@ static int __cam_isp_ctx_handle_buf_done_for_request_verify_addr(
 				ctx_isp->isp_device_type,
 				req_isp->fence_map_out[j].resource_handle);
 
-			CAM_WARN(CAM_ISP,
+			CAM_DBG(CAM_ISP,
 				"Duplicate BUF_DONE for req %lld : i=%d, j=%d, res=%s",
 				req->request_id, i, j, handle_type);
 

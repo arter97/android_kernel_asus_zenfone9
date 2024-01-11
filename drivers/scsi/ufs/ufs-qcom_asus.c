@@ -432,10 +432,8 @@ static ssize_t ufshcd_ufs_fw_version_show(struct device *dev,
 {
 	struct ufs_hba *hba = dev_get_drvdata(dev);
 	int curr_len;
-	char *rev_buf;
+	char rev_buf[256] = { 0, };
 
-	rev_buf=kzalloc(255, GFP_KERNEL);
-	memset(rev_buf, 0, 255);
 	get_ufs_fw_version(hba, rev_buf, false);
 
 	curr_len = snprintf(buf, PAGE_SIZE,"%s\n", rev_buf);

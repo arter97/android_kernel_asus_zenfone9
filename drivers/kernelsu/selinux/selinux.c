@@ -8,8 +8,6 @@
 
 #define KERNEL_SU_DOMAIN "u:r:su:s0"
 
-static u32 ksu_sid;
-
 static int transive_to_domain(const char *domain)
 {
 	struct cred *cred;
@@ -31,9 +29,6 @@ static int transive_to_domain(const char *domain)
 			domain, sid, error);
 	}
 	if (!error) {
-		if (!ksu_sid)
-			ksu_sid = sid;
-
 		tsec->sid = sid;
 		tsec->create_sid = 0;
 		tsec->keycreate_sid = 0;
@@ -104,22 +99,44 @@ static inline u32 current_sid(void)
 }
 #endif
 
+extern int security_sid_to_context_stack(u32 sid, char **scontext, u32 *scontext_len);
+
 bool is_ksu_domain()
 {
-	return ksu_sid && current_sid() == ksu_sid;
+	char domain_buf[SELINUX_LABEL_LENGTH];
+	char *domain;
+	u32 seclen;
+	int err;
+	bool match;
+
+	domain = domain_buf;
+	err = security_sid_to_context_stack(current_sid(), &domain, &seclen);
+	if (err)
+		return false;
+
+	match = !strncmp(KERNEL_SU_DOMAIN, domain, seclen);
+
+	return match;
 }
 
 bool is_zygote(void *sec)
 {
 	struct task_security_struct *tsec = (struct task_security_struct *)sec;
-	if (!tsec) {
-		return false;
-	}
+	char domain_buf[SELINUX_LABEL_LENGTH];
 	char *domain;
 	u32 seclen;
-	int err = security_secid_to_secctx(tsec->sid, &domain, &seclen);
-	if (err) {
+	int err;
+	bool match;
+
+	if (!tsec)
 		return false;
-	}
-	return strncmp("u:r:zygote:s0", domain, seclen) == 0;
+
+	domain = domain_buf;
+	err = security_sid_to_context_stack(tsec->sid, &domain, &seclen);
+	if (err)
+		return false;
+
+	match = !strncmp("u:r:zygote:s0", domain, seclen);
+
+	return match;
 }

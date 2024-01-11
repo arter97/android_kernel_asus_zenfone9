@@ -546,12 +546,12 @@ static ssize_t hbm_mode_read(struct file *file, char __user *buf,
 	ssize_t ret = 0;
 	char *buff;
 
+	if (*ppos)
+		return 0;
+
 	buff = kzalloc(100, GFP_KERNEL);
 	if (!buff)
 		return -ENOMEM;
-
-	if (*ppos)
-		return 0;
 
 	DSI_LOG("hbm mode is %d\n", g_display->panel->panel_hbm_mode);
 

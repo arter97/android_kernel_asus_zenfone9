@@ -319,6 +319,7 @@ static noinline void __init load_modname(const char * const modname, const char 
 			if (*args)
 				parse_args(modname, args, NULL, 0, 0, 0, NULL,
 					   integrated_module_param_cb);
+			kfree(args);
 		}
 	}
 
@@ -381,7 +382,6 @@ static noinline int __init __load_module(struct load_info *info, const char __us
 	}
 
 err:
-	free_copy(info);
 	return err;
 }
 
@@ -415,6 +415,7 @@ static int __ref load_module(struct load_info *info, const char __user *uargs,
 	}
 
 out:
+	free_copy(info);
 	mutex_unlock(&lazy_initcall_mutex);
 	return ret;
 }

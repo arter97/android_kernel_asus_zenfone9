@@ -93,3 +93,4 @@ obj-$(CONFIG_ASUS_HALL_SENSOR1) += hall_sensor.o
 obj-$(CONFIG_ASUS_HALL_SENSOR2) += hall_sensor_2nd.o
 obj-$(CONFIG_ASUS_HALL_SENSOR3) += hall_sensor_3nd.o
 obj-$(CONFIG_ASUS_HALL_SENSOR1_1) += hall_sensor_1.o
+obj-$(CONFIG_INPUT_PWRKEY_SYNC)		+= pwrkey-sync.o

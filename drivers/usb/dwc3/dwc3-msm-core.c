@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -4364,6 +4365,7 @@ static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static void dwc3_override_vbus_status(struct dwc3_msm *mdwc, bool vbus_present);
 static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 	unsigned long event, void *ptr)
 {
@@ -4406,6 +4408,11 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 		 */
 		if (dwc && dwc->gadget && dwc->gadget->speed >= USB_SPEED_SUPER && !spoof)
 			return NOTIFY_DONE;
+
+		if (!spoof && mdwc->drd_state != DRD_STATE_UNDEFINED) {
+			dwc3_override_vbus_status(mdwc, !!event);
+			return NOTIFY_DONE;
+		}
 
 		mdwc->check_eud_state = true;
 	} else {
@@ -6825,8 +6832,8 @@ static int dwc3_otg_start_peripheral(struct dwc3_msm *mdwc, int on)
 		/*
 		 * Check udc->driver to find out if we are bound to udc or not.
 		 */
-		if ((mdwc->force_disconnect) && (dwc->gadget->udc->driver) &&
-			(!vdwc->softconnect)) {
+		if ((mdwc->force_disconnect) && (!vdwc->softconnect) &&
+			(dwc->gadget) && (dwc->gadget->udc->driver)) {
 			dbg_event(0xFF, "Force Pullup", 0);
 			usb_gadget_connect(dwc->gadget);
 		}
@@ -6857,7 +6864,7 @@ static int dwc3_otg_start_peripheral(struct dwc3_msm *mdwc, int on)
 		 * disable), and retry suspend again.
 		 */
 		ret = pm_runtime_put_sync(&mdwc->dwc3->dev);
-		if (ret < 0) {
+		if (!pm_runtime_suspended(&mdwc->dwc3->dev)) {
 			while (--timeout && dwc->connected)
 				msleep(20);
 			dbg_event(0xFF, "StopGdgt connected", dwc->connected);

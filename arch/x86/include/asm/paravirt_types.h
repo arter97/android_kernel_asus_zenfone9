@@ -41,7 +41,6 @@
 #ifndef __ASSEMBLY__
 
 #include <asm/desc_defs.h>
-#include <asm/kmap_types.h>
 #include <asm/pgtable_types.h>
 #include <asm/nospec-branch.h>
 
@@ -156,14 +155,6 @@ struct pv_cpu_ops {
 	int (*write_msr_safe)(unsigned int msr, unsigned low, unsigned high);
 
 	u64 (*read_pmc)(int counter);
-
-	/*
-	 * Switch to usermode gs and return to 64-bit usermode using
-	 * sysret.  Only used in 64-bit kernels to return to 64-bit
-	 * processes.  Usermode register state, including %rsp, must
-	 * already be restored.
-	 */
-	void (*usergs_sysret64)(void);
 
 	/* Normal iret.  Jump to this with the standard iret stack
 	   frame set up. */

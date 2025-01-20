@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2009-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2017-2019, Linaro Ltd.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/err.h>
@@ -1042,6 +1042,7 @@ static const struct soc_id soc_id[] = {
 	{ 638, "PARROTP" },
 	{ 633, "SG_PARROT" },
 	{ 634, "SG_PARROTP" },
+	{ 663, "PARROTPRO" },
 	{ 530, "CAPE" },
 	{ 531, "CAPEP" },
 	{ 540, "CAPE-V2" },
@@ -1049,11 +1050,15 @@ static const struct soc_id soc_id[] = {
 	{ 525, "NEO-LE" },
 	{ 552, "WAIPIO-LTE" },
 	{ 554, "NEO-LA" },
+	{ 579, "NEO-LA-V2" },
 	{ 568, "RAVELIN" },
 	{ 549, "ANORAK" },
+	{ 649, "ANORAKP" },
 	{ 581, "MONTAGUE" },
 	{ 582, "MONTAGUEP" },
 	{ 602, "RAVELINP" },
+	{ 653, "SG_RAVELIN" },
+	{ 654, "SG_RAVELINP" },
 };
 
 static struct qcom_socinfo *qsocinfo;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -419,6 +419,9 @@ static int gen7_hwsched_gmu_first_boot(struct adreno_device *adreno_dev)
 
 	icc_set_bw(pwr->icc_path, 0, kBps_to_icc(pwr->ddr_table[level]));
 
+	/* Clear any hwsched faults that might have been left over */
+	adreno_hwsched_clear_fault(adreno_dev);
+
 	ret = gen7_gmu_device_start(adreno_dev);
 	if (ret)
 		goto err;
@@ -478,13 +481,6 @@ static int gen7_hwsched_gmu_boot(struct adreno_device *adreno_dev)
 	if (ret)
 		goto gdsc_off;
 
-	/*
-	 * TLB operations are skipped during slumber. Incase CX doesn't
-	 * go down, it can result in incorrect translations due to stale
-	 * TLB entries. Flush TLB before boot up to ensure fresh start.
-	 */
-	kgsl_mmu_flush_tlb(&device->mmu);
-
 	ret = gen7_rscc_wakeup_sequence(adreno_dev);
 	if (ret)
 		goto clks_gdsc_off;
@@ -496,6 +492,9 @@ static int gen7_hwsched_gmu_boot(struct adreno_device *adreno_dev)
 	gen7_gmu_register_config(adreno_dev);
 
 	gen7_gmu_irq_enable(adreno_dev);
+
+	/* Clear any hwsched faults that might have been left over */
+	adreno_hwsched_clear_fault(adreno_dev);
 
 	ret = gen7_gmu_device_start(adreno_dev);
 	if (ret)
@@ -572,8 +571,15 @@ static int gen7_hwsched_notify_slumber(struct adreno_device *adreno_dev)
 	/* Disable the power counter so that the GMU is not busy */
 	gmu_core_regwrite(device, GEN7_GMU_CX_GMU_POWER_COUNTER_ENABLE, 0);
 
-	return gen7_hfi_send_cmd_async(adreno_dev, &req, sizeof(req));
+	ret = gen7_hfi_send_cmd_async(adreno_dev, &req, sizeof(req));
 
+	/*
+	 * GEMNOC can enter power collapse state during GPU power down sequence.
+	 * This could abort CX GDSC collapse. Assert Qactive to avoid this.
+	 */
+	gmu_core_regwrite(device, GEN7_GPU_GMU_CX_GMU_CX_FALNEXT_INTF, 0x1);
+
+	return ret;
 }
 static int gen7_hwsched_gmu_power_off(struct adreno_device *adreno_dev)
 {
@@ -630,9 +636,6 @@ static int gen7_hwsched_gpu_boot(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	int ret;
-
-	/* Clear any GPU faults that might have been left over */
-	adreno_clear_gpu_fault(adreno_dev);
 
 	ret = kgsl_mmu_start(device);
 	if (ret)

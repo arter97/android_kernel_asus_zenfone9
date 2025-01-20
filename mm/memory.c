@@ -57,6 +57,7 @@
 #include <linux/delayacct.h>
 #include <linux/init.h>
 #include <linux/pfn_t.h>
+#include <linux/pgsize_migration.h>
 #include <linux/writeback.h>
 #include <linux/memcontrol.h>
 #include <linux/mmu_notifier.h>
@@ -2317,26 +2318,13 @@ static inline int remap_p4d_range(struct mm_struct *mm, pgd_t *pgd,
 	return 0;
 }
 
-/**
- * remap_pfn_range - remap kernel memory to userspace
- * @vma: user vma to map to
- * @addr: target page aligned user address to start at
- * @pfn: page frame number of kernel physical memory address
- * @size: size of mapping area
- * @prot: page protection flags for this mapping
- *
- * Note: this is only safe if the mm semaphore is held when called.
- *
- * Return: %0 on success, negative error code otherwise.
- */
-int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
-		    unsigned long pfn, unsigned long size, pgprot_t prot)
+static int remap_pfn_range_internal(struct vm_area_struct *vma, unsigned long addr,
+		unsigned long pfn, unsigned long size, pgprot_t prot)
 {
 	pgd_t *pgd;
 	unsigned long next;
 	unsigned long end = addr + PAGE_ALIGN(size);
 	struct mm_struct *mm = vma->vm_mm;
-	unsigned long remap_pfn = pfn;
 	int err;
 
 	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
@@ -2366,10 +2354,6 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 		vma->vm_pgoff = pfn;
 	}
 
-	err = track_pfn_remap(vma, &prot, remap_pfn, addr, PAGE_ALIGN(size));
-	if (err)
-		return -EINVAL;
-
 	vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP;
 
 	BUG_ON(addr >= end);
@@ -2381,12 +2365,57 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 		err = remap_p4d_range(mm, pgd, addr, next,
 				pfn + (addr >> PAGE_SHIFT), prot);
 		if (err)
-			break;
+			return err;
 	} while (pgd++, addr = next, addr != end);
 
-	if (err)
-		untrack_pfn(vma, remap_pfn, PAGE_ALIGN(size));
+	return 0;
+}
 
+/*
+ * Variant of remap_pfn_range that does not call track_pfn_remap.  The caller
+ * must have pre-validated the caching bits of the pgprot_t.
+ */
+int remap_pfn_range_notrack(struct vm_area_struct *vma, unsigned long addr,
+		unsigned long pfn, unsigned long size, pgprot_t prot)
+{
+	int error = remap_pfn_range_internal(vma, addr, pfn, size, prot);
+
+	if (!error)
+		return 0;
+
+	/*
+	 * A partial pfn range mapping is dangerous: it does not
+	 * maintain page reference counts, and callers may free
+	 * pages due to the error. So zap it early.
+	 */
+	zap_page_range_single(vma, addr, size, NULL);
+	return error;
+}
+
+/**
+ * remap_pfn_range - remap kernel memory to userspace
+ * @vma: user vma to map to
+ * @addr: target page aligned user address to start at
+ * @pfn: page frame number of kernel physical memory address
+ * @size: size of mapping area
+ * @prot: page protection flags for this mapping
+ *
+ * Note: this is only safe if the mm semaphore is held when called.
+ *
+ * Return: %0 on success, negative error code otherwise.
+ */
+int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
+		    unsigned long pfn, unsigned long size, pgprot_t prot)
+{
+	int err;
+
+	err = track_pfn_remap(vma, &prot, pfn, addr, PAGE_ALIGN(size));
+	if (err)
+		return -EINVAL;
+
+	err = remap_pfn_range_notrack(vma, addr, pfn, size, prot);
+	if (err)
+		untrack_pfn(vma, pfn, PAGE_ALIGN(size));
 	return err;
 }
 EXPORT_SYMBOL(remap_pfn_range);
@@ -2928,7 +2957,8 @@ static inline bool cow_user_page(struct page *dst, struct page *src,
 	 * just copying from the original user address. If that
 	 * fails, we just zero-fill it. Live with it.
 	 */
-	kaddr = kmap_atomic(dst);
+	kaddr = kmap_local_page(dst);
+	pagefault_disable();
 	uaddr = (void __user *)(addr & PAGE_MASK);
 
 	/*
@@ -2995,7 +3025,8 @@ warn:
 pte_unlock:
 	if (locked)
 		pte_unmap_unlock(vmf->pte, vmf->ptl);
-	kunmap_atomic(kaddr);
+	pagefault_enable();
+	kunmap_local(kaddr);
 	flush_dcache_page(dst);
 
 	return ret;
@@ -3631,8 +3662,16 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	void *shadow = NULL;
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
-		pte_unmap(vmf->pte);
-		return VM_FAULT_RETRY;
+		bool allow_swap_spf = false;
+
+		/* ksm_might_need_to_copy() needs a stable VMA, spf can't be used */
+#ifndef CONFIG_KSM
+		trace_android_vh_do_swap_page_spf(&allow_swap_spf);
+#endif
+		if (!allow_swap_spf) {
+			pte_unmap(vmf->pte);
+			return VM_FAULT_RETRY;
+		}
 	}
 
 	ret = pte_unmap_same(vmf);
@@ -4359,7 +4398,7 @@ static vm_fault_t do_fault_around(struct vm_fault *vmf)
 	end_pgoff = start_pgoff -
 		((address >> PAGE_SHIFT) & (PTRS_PER_PTE - 1)) +
 		PTRS_PER_PTE - 1;
-	end_pgoff = min3(end_pgoff, vma_pages(vmf->vma) + vmf->vma->vm_pgoff - 1,
+	end_pgoff = min3(end_pgoff, vma_data_pages(vmf->vma) + vmf->vma->vm_pgoff - 1,
 			start_pgoff + nr_pages - 1);
 
 	if (!(vmf->flags & FAULT_FLAG_SPECULATIVE) &&
@@ -5059,6 +5098,7 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 
 	vmf.vma_flags = READ_ONCE(vmf.vma->vm_flags);
 	vmf.vma_page_prot = READ_ONCE(vmf.vma->vm_page_prot);
+	vmf.sequence = seq;
 
 #ifdef CONFIG_USERFAULTFD
 	/*
@@ -5068,7 +5108,7 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 	if (unlikely(vmf.vma_flags & __VM_UFFD_FLAGS)) {
 		uffd_missing_sigbus = vma_is_anonymous(vmf.vma) &&
 					(vmf.vma_flags & VM_UFFD_MISSING) &&
-					userfaultfd_using_sigbus(vmf.vma);
+					userfaultfd_using_sigbus(&vmf);
 		if (!uffd_missing_sigbus) {
 			trace_spf_vma_notsup(_RET_IP_, vmf.vma, address);
 			return VM_FAULT_RETRY;
@@ -5194,7 +5234,6 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 		vmf.pte = NULL;
 	}
 
-	vmf.sequence = seq;
 	vmf.flags = flags;
 
 	local_irq_enable();
@@ -5589,6 +5628,10 @@ int follow_phys(struct vm_area_struct *vma,
 		goto out;
 	pte = *ptep;
 
+	/* Never return PFNs of anon folios in COW mappings. */
+	if (vm_normal_page(vma, address, pte))
+		goto unlock;
+
 	if ((flags & FOLL_WRITE) && !pte_write(pte))
 		goto unlock;
 
@@ -5674,7 +5717,7 @@ int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 			if (bytes > PAGE_SIZE-offset)
 				bytes = PAGE_SIZE-offset;
 
-			maddr = kmap(page);
+			maddr = kmap_local_page(page);
 			if (write) {
 				copy_to_user_page(vma, page, addr,
 						  maddr + offset, buf, bytes);
@@ -5683,7 +5726,7 @@ int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 				copy_from_user_page(vma, page, addr,
 						    buf, maddr + offset, bytes);
 			}
-			kunmap(page);
+			kunmap_local(maddr);
 			put_page(page);
 		}
 		len -= bytes;
@@ -5946,17 +5989,15 @@ long copy_huge_page_from_user(struct page *dst_page,
 
 	for (i = 0; i < pages_per_huge_page;
 	     i++, subpage = mem_map_next(subpage, dst_page, i)) {
-		if (allow_pagefault)
-			page_kaddr = kmap(subpage);
-		else
-			page_kaddr = kmap_atomic(subpage);
+		page_kaddr = kmap_local_page(subpage);
+		if (!allow_pagefault)
+			pagefault_disable();
 		rc = copy_from_user(page_kaddr,
 				(const void __user *)(src + i * PAGE_SIZE),
 				PAGE_SIZE);
-		if (allow_pagefault)
-			kunmap(subpage);
-		else
-			kunmap_atomic(page_kaddr);
+		if (!allow_pagefault)
+			pagefault_enable();
+		kunmap_local(page_kaddr);
 
 		ret_val -= (PAGE_SIZE - rc);
 		if (rc)

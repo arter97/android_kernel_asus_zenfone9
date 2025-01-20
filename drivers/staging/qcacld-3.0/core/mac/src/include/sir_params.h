@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -145,7 +146,7 @@ typedef struct sSirMbMsg {
 	 * NOTE: data[1] is not a place holder to store data
 	 * instead to dereference the message body.
 	 */
-	uint32_t data[1];
+	QDF_FLEX_ARRAY(uint32_t, data);
 } tSirMbMsg, *tpSirMbMsg;
 
 /**
@@ -649,8 +650,10 @@ enum halmsgtype {
 	SIR_HAL_TWT_RESUME_DIALOG_REQUEST = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 420),
 	SIR_HAL_PEER_CREATE_REQ           = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 421),
 	SIR_HAL_TWT_NUDGE_DIALOG_REQUEST  = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 422),
-
-
+#ifdef FEATURE_WLAN_APF
+	SIR_HAL_ENABLE_ACTIVE_APF_MODE_IND = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 425),
+	SIR_HAL_DISABLE_ACTIVE_APF_MODE_IND = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 426),
+#endif
 	SIR_HAL_MSG_TYPES_END               = (SIR_HAL_MSG_TYPES_BEGIN + 0x1FF),
 };
 /* LIM message types */

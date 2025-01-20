@@ -12,6 +12,80 @@
 
 #include "u_fs.h"
 
+#include <linux/usb/f_accessory.h>
+#include <linux/miscdevice.h>
+
+#define RX_REQ_MAX 2
+#define ACC_STRING_SIZE     256
+
+struct acc_dev {
+	struct usb_function function;
+	struct usb_composite_dev *cdev;
+	spinlock_t lock;
+	struct acc_dev_ref *ref;
+
+	struct usb_ep *ep_in;
+	struct usb_ep *ep_out;
+
+	/* online indicates state of function_set_alt & function_unbind
+	 * set to 1 when we connect
+	 */
+	int online;
+
+	/* disconnected indicates state of open & release
+	 * Set to 1 when we disconnect.
+	 * Not cleared until our file is closed.
+	 */
+	int disconnected;
+
+	/* strings sent by the host */
+	char manufacturer[ACC_STRING_SIZE];
+	char model[ACC_STRING_SIZE];
+	char description[ACC_STRING_SIZE];
+	char version[ACC_STRING_SIZE];
+	char uri[ACC_STRING_SIZE];
+	char serial[ACC_STRING_SIZE];
+
+	/* for acc_complete_set_string */
+	int string_index;
+
+	/* set to 1 if we have a pending start request */
+	int start_requested;
+
+	int audio_mode;
+
+	/* synchronize access to our device file */
+	atomic_t open_excl;
+
+	struct list_head tx_idle;
+
+	wait_queue_head_t read_wq;
+	wait_queue_head_t write_wq;
+	struct usb_request *rx_req[RX_REQ_MAX];
+	int rx_done;
+
+	/* delayed work for handling ACCESSORY_START */
+	struct delayed_work start_work;
+
+	/* work for handling ACCESSORY GET PROTOCOL */
+	struct work_struct getprotocol_work;
+
+	/* work for handling ACCESSORY SEND STRING */
+	struct work_struct sendstring_work;
+
+	/* worker for registering and unregistering hid devices */
+	struct work_struct hid_work;
+
+	/* list of active HID devices */
+	struct list_head	hid_list;
+
+	/* list of new HID devices to register */
+	struct list_head	new_hid_list;
+
+	/* list of dead HID devices to unregister */
+	struct list_head	dead_hid_list;
+};
+
 /* Copied from f_fs.c */
 struct ffs_io_data {
 	bool aio;
@@ -821,6 +895,72 @@ static int exit_ffs_closed(struct kretprobe_instance *ri,
 	return 0;
 }
 
+struct miscdevice *g_acc_device;
+
+char *envs_reset[2] = { "F_ACC_SPEED=RESET", NULL };
+char *envs_full[2] = { "F_ACC_SPEED=FULL", NULL };
+
+static int entry_acc_function_unbind(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
+{
+
+	if (!g_acc_device)
+		return 0;
+
+	pr_info("kprobe %s\n", __func__);
+	kobject_uevent_env(&g_acc_device->this_device->kobj, KOBJ_OFFLINE, envs_reset);
+
+	return 0;
+}
+
+static int entry_acc_start_work(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
+{
+	struct work_struct *work = (struct work_struct *)regs->regs[0];
+	struct acc_dev *dev = container_of(work, struct acc_dev, start_work.work);
+
+	if (!g_acc_device || !dev)
+		return 0;
+
+	pr_info("kprobe %s %s\n", g_acc_device->name, dev->manufacturer);
+	if (!strcmp(dev->manufacturer, "Android") && !strcmp(dev->version, "1.0")) {
+		kobject_uevent_env(&g_acc_device->this_device->kobj, KOBJ_OFFLINE, envs_full);
+		pr_info("set full speed\n");
+	}
+	return 0;
+}
+
+entry_misc_register(struct kretprobe_instance *ri,
+				   struct pt_regs *regs){
+
+	struct kprobe_data *data = (struct kprobe_data *)ri->data;
+	struct miscdevice *acc_device = (struct miscdevice *)regs->regs[0];
+
+	data->x0 = acc_device;
+
+	return 0;
+}
+
+exit_misc_register(struct kretprobe_instance *ri,
+				   struct pt_regs *regs){
+
+	struct kprobe_data *data = (struct kprobe_data *)ri->data;
+
+	struct miscdevice *msic_device = data->x0;
+
+	if (!msic_device)
+		return 0;
+
+	if(!strcmp(msic_device->name, "usb_accessory")) {
+		g_acc_device = data->x0;
+		pr_info("kprobe %s\n", __func__);
+	}
+
+	return 0;
+}
+
+
+
 #define ENTRY_EXIT(name) {\
 	.handler = exit_##name,\
 	.entry_handler = entry_##name,\
@@ -837,6 +977,9 @@ static int exit_ffs_closed(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe ffsprobes[] = {
+	ENTRY_EXIT(misc_register),
+	ENTRY(acc_function_unbind),
+	ENTRY(acc_start_work),
 	ENTRY(ffs_user_copy_worker),
 	ENTRY_EXIT(ffs_epfile_io),
 	ENTRY(ffs_epfile_async_io_complete),

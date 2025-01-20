@@ -4633,6 +4633,7 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_IDLE);
 
+	panel->aod_state = true;
 /* ASUS BSP Display, TT#291333 +++ */
 #if defined ASUS_AI2201_PROJECT
 	msleep(17);
@@ -4645,7 +4646,6 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		       panel->name, rc);
 
 #if defined ASUS_AI2201_PROJECT
-	panel->aod_state = true;
 	// for AOD state restore backlight after received notify
 	if(display_commit_cnt < COMMIT_FRAMES_COUNT) {
 		panel->aod_delay = true;
@@ -4653,7 +4653,6 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 #endif
 
 #if defined ASUS_AI2202_PROJECT
-	panel->aod_state = true;
 	// for AOD state restore backlight after received notify
 	if(display_commit_cnt < COMMIT_FRAMES_COUNT) {
 		panel->aod_delay = true;
@@ -5033,6 +5032,8 @@ int dsi_panel_switch(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
+// Anyway, this will make aod_state unexpected so take it out for now.
+/*
 #if defined ASUS_AI2201_PROJECT
 	if (panel->aod_state) {
 		DSI_LOG("exit AOD (%d) before fps change\n", panel->aod_state);
@@ -5060,6 +5061,7 @@ int dsi_panel_switch(struct dsi_panel *panel)
 		}
 	}
 #endif
+*/
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_TIMING_SWITCH);
 	if (rc)

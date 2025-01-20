@@ -54,6 +54,7 @@
 #endif
 #include "focaltech_core.h"
 #include "asus_tp.h"
+#include "focaltech_wakelock.h"
 /* ASUS BSP Display +++ */
 //#include <drm/drm_zf8.h>
 
@@ -70,11 +71,13 @@
 #define FTS_I2C_VTG_MIN_UV                  1800000
 #define FTS_I2C_VTG_MAX_UV                  1800000
 #endif
+#define WAKELOCK_HOLD_TIME                  500 /* in ms */
 
 /*****************************************************************************
 * Global variable or extern global variabls/functions
 *****************************************************************************/
 struct fts_ts_data *fts_data;
+static struct wake_lock fts_wakelock;
 #if defined(CONFIG_DRM)
 static struct drm_panel *active_panel;
 static void fts_ts_panel_notifier_callback(enum panel_event_notifier_tag tag,
@@ -1069,6 +1072,7 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
         }
     }
 #endif
+    wake_lock_timeout(&fts_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_TIME));
 
     fts_irq_read_report();
     return IRQ_HANDLED;
@@ -2155,6 +2159,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 #if !FTS_AUTO_UPGRADE_EN
     fts_irq_enable();
 #endif
+    wake_lock_init(&fts_wakelock, ts_data->dev, "fts_wakelock");
 
     FTS_FUNC_EXIT();
     ts_data->init_success = 1;
@@ -2195,6 +2200,8 @@ err_bus_init:
 static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
+
+    wake_lock_destroy(&fts_wakelock);
 
 #if FTS_POINT_REPORT_CHECK_EN
     fts_point_report_check_exit(ts_data);

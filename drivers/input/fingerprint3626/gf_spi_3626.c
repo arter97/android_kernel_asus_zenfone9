@@ -89,6 +89,7 @@ struct gf_dev gf;
 static struct drm_panel *active_panel;
 static struct platform_device *g_pdev;
 static char notify_event = 0;
+bool fp_display_on = false;
 
 static struct gf_key_map maps[] = {
 	{ EV_KEY, GF_KEY_INPUT_HOME },
@@ -603,6 +604,7 @@ static void goodix_fp_panel_notifier_callback(enum panel_event_notifier_tag tag,
 #if defined(GF_NETLINK_ENABLE)
 			msg = GF_NET_EVENT_FB_UNBLACK;
 			sendnlmsg(&msg);
+			fp_display_on = true;
 #elif defined(GF_FASYNC)
 			if (gf_dev->async)
 				kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
@@ -616,6 +618,7 @@ static void goodix_fp_panel_notifier_callback(enum panel_event_notifier_tag tag,
 #if defined(GF_NETLINK_ENABLE)
 			msg = GF_NET_EVENT_FB_BLACK;
 			sendnlmsg(&msg);
+			fp_display_on = false;
 #elif defined(GF_FASYNC)
 			if (gf_dev->async)
 				kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
@@ -624,6 +627,19 @@ static void goodix_fp_panel_notifier_callback(enum panel_event_notifier_tag tag,
 		break;
 	case DRM_PANEL_EVENT_BLANK_LP:
 		pr_info("[GF][%s] Display resume into LP1/LP2\n", __func__);
+		if (gf_dev->device_available == 1) {
+			gf_dev->fb_black = 1;
+#if defined(GF_NETLINK_ENABLE)
+			msg = GF_NET_EVENT_FB_BLACK;
+			if (fp_display_on == true) {
+				sendnlmsg(&msg);
+				fp_display_on = false;
+			}
+#elif defined(GF_FASYNC)
+			if (gf_dev->async)
+				kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+#endif
+		}
 		break;
 	case DRM_PANEL_EVENT_FPS_CHANGE:
 		pr_info("[GF][%s] shashank:Received fps change old fps:%d new fps:%d\n", __func__,

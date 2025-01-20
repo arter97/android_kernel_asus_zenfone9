@@ -290,6 +290,9 @@ static int eusb2_repeater_power(struct eusb2_repeater *er, bool on)
 	return ret;
 
 disable_vdd3:
+	pr_debug("%s(): eUSB2 repeater skip disable_vdd3, always on\n", __func__);
+	return ret;
+
 	ret = regulator_disable(er->vdd3);
 	if (ret)
 		dev_err(er->ur.dev, "Unable to disable vdd3:%d\n", ret);

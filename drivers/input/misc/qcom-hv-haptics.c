@@ -592,6 +592,7 @@ struct haptics_chip {
 	struct class			hap_class;
 	struct regulator		*hpwr_vreg;
 	struct hrtimer			hbst_off_timer;
+	struct mutex			vmax_lock;
 	struct notifier_block		hboost_nb;
 	int				fifo_empty_irq;
 	u32				hpwr_voltage_mv;
@@ -1194,6 +1195,7 @@ static int haptics_set_vmax_mv(struct haptics_chip *chip, u32 vmax_mv)
 	int rc = 0;
 	u8 val, vmax_step;
 
+	mutex_lock(&chip->vmax_lock);
 	if (vmax_mv > chip->max_vmax_mv) {
 		dev_dbg(chip->dev, "vmax (%d) exceed the max value: %d\n",
 					vmax_mv, chip->max_vmax_mv);
@@ -1216,6 +1218,7 @@ static int haptics_set_vmax_mv(struct haptics_chip *chip, u32 vmax_mv)
 	else
 		dev_dbg(chip->dev, "Set Vmax to %u mV\n", vmax_mv);
 
+	mutex_unlock(&chip->vmax_lock);
 	return rc;
 }
 
@@ -2685,6 +2688,7 @@ static void haptics_set_gain(struct input_dev *dev, u16 gain)
 	if (gain == 0)
 		return;
 
+	mutex_lock(&play->lock);
 	if (gain > 0x7fff)
 		gain = 0x7fff;
 
@@ -2704,6 +2708,7 @@ static void haptics_set_gain(struct input_dev *dev, u16 gain)
 		}
 
 		haptics_set_direct_play(chip, (u8)amplitude);
+		mutex_unlock(&play->lock);
 		return;
 	}
 
@@ -2717,6 +2722,7 @@ static void haptics_set_gain(struct input_dev *dev, u16 gain)
 
 	play->vmax_mv = ((u32)(gain * vmax_mv)) / 0x7fff;
 	haptics_set_vmax_mv(chip, play->vmax_mv);
+	mutex_unlock(&play->lock);
 }
 
 static int haptics_store_cl_brake_settings(struct haptics_chip *chip)
@@ -5821,6 +5827,8 @@ static int haptics_probe(struct platform_device *pdev)
 		dev_err(chip->dev, "Init custom effect failed, rc=%d\n", rc);
 		return rc;
 	}
+
+	mutex_init(&chip->vmax_lock);
 
 	rc = haptics_hw_init(chip);
 	if (rc < 0) {

@@ -7,6 +7,7 @@
 #include <linux/syscalls.h>
 
 #include "dsi_ai2202.h"
+#include "dsi_panel.h"
 
 #if defined ASUS_AI2202_PROJECT
 #include <sde_encoder_phys.h>
@@ -890,6 +891,22 @@ void dsi_ai2202_frame_commit_cnt(struct drm_crtc *crtc)
 			aod_delay_frames = 0;
 		}
 	}
+
+	// Set default backlight = 61/1, if nobody coming to set AOD HIGH/LOW.
+	if (display_commit_cnt == 0 && g_display->panel->aod_state) {
+		if (g_display->panel->aod_mode == 0) {
+			mutex_lock(&g_display->panel->panel_lock);
+			if (g_display->panel->panel_last_backlight > 15) {
+				DSI_LOG("DEFAULT AOD HIGH BACKLIGHT, panel_last_backlight = %d", g_display->panel->panel_last_backlight);
+				dsi_panel_set_backlight(g_display->panel, 61);
+			} else {
+				DSI_LOG("DEFAULT AOD LOW BACKLIGHT,  panel_last_backlight = %d", g_display->panel->panel_last_backlight);
+				dsi_panel_set_backlight(g_display->panel,  1);
+			}
+			mutex_unlock(&g_display->panel->panel_lock);
+		}
+		display_commit_cnt--;
+	}
 }
 
 // to show & clear frame commit count
@@ -912,6 +929,7 @@ void dsi_ai2202_display_init(struct dsi_display *display)
 	g_display->panel->dc_bl_delay = false;
 	g_display->panel->csc_mode = 0;
 	g_display->panel->aod_state = false;
+	g_display->panel->aod_mode = 0;
 	g_display->panel->aod_delay = false;
 
 	proc_create(LCD_UNIQUE_ID, 0444, NULL, &lcd_unique_id_ops);
@@ -982,6 +1000,10 @@ static bool dsi_ai2202_validate_c2_last(u32 c2_last)
 bool ai2202_need_skip_data(u32 c2_last)
 {
 	bool rc = false;
+
+	// need to update igc when entering doze mode
+	if (g_display->panel->aod_state)
+		return rc;
 
 	// don't validate if no dc change
 	if (!atomic_read(&g_display->panel->is_dc_change))

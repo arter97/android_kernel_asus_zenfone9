@@ -171,6 +171,11 @@ static struct arm_smmu_domain *to_smmu_domain(struct iommu_domain *dom)
 	return container_of(dom, struct arm_smmu_domain, domain);
 }
 
+static struct arm_smmu_domain *cb_cfg_to_smmu_domain(struct arm_smmu_cfg *cfg)
+{
+	return container_of(cfg, struct arm_smmu_domain, cfg);
+}
+
 static void parse_driver_options(struct arm_smmu_device *smmu)
 {
 	int i = 0;
@@ -620,9 +625,16 @@ static void arm_smmu_tlb_inv_range_s2(unsigned long iova, size_t size,
 static void arm_smmu_tlb_inv_walk_s1(unsigned long iova, size_t size,
 				     size_t granule, void *cookie)
 {
-	arm_smmu_tlb_inv_range_s1(iova, size, granule, cookie,
-				  ARM_SMMU_CB_S1_TLBIVA);
-	arm_smmu_tlb_sync_context(cookie);
+	struct arm_smmu_domain *smmu_domain = cookie;
+	struct arm_smmu_cfg *cfg = &smmu_domain->cfg;
+
+	if (cfg->flush_walk_prefer_tlbiasid) {
+		arm_smmu_tlb_inv_context_s1(cookie);
+	} else {
+		arm_smmu_tlb_inv_range_s1(iova, size, granule, cookie,
+					  ARM_SMMU_CB_S1_TLBIVA);
+		arm_smmu_tlb_sync_context(cookie);
+	}
 }
 
 static void arm_smmu_tlb_add_page_s1(struct iommu_iotlb_gather *gather,
@@ -1453,6 +1465,11 @@ static void arm_smmu_qcom_tlb_add_inv(void *cookie)
 	unsigned long flags;
 
 	spin_lock_irqsave(&smmu_domain->iotlb_gather_lock, flags);
+	if (smmu_domain->skip_tlb_management) {
+		smmu_domain->deferred_flush = false;
+		spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
+		return;
+	}
 	smmu_domain->deferred_flush = true;
 	spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
 }
@@ -1460,6 +1477,15 @@ static void arm_smmu_qcom_tlb_add_inv(void *cookie)
 static void arm_smmu_qcom_tlb_sync(void *cookie)
 {
 	struct arm_smmu_domain *smmu_domain = cookie;
+	unsigned long flags;
+
+	spin_lock_irqsave(&smmu_domain->iotlb_gather_lock, flags);
+	if (smmu_domain->skip_tlb_management) {
+		smmu_domain->deferred_flush = false;
+		spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
+		return;
+	}
+	spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
 
 	arm_smmu_rpm_get(smmu_domain->smmu);
 	__arm_smmu_flush_iotlb_all(&smmu_domain->domain, false);
@@ -1493,11 +1519,11 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 	int irq, start, ret = 0;
 	unsigned long ias, oas;
 	struct io_pgtable_ops *pgtbl_ops;
-	struct qcom_io_pgtable_info pgtbl_info;
-	struct io_pgtable_cfg *pgtbl_cfg = &pgtbl_info.cfg;
 	enum io_pgtable_fmt fmt;
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_cfg *cfg = &smmu_domain->cfg;
+	struct qcom_io_pgtable_info *pgtbl_info = &smmu_domain->pgtbl_info;
+	struct io_pgtable_cfg *pgtbl_cfg = &pgtbl_info->cfg;
 	irqreturn_t (*context_fault)(int irq, void *dev);
 	struct io_pgtable *iop;
 
@@ -1619,8 +1645,8 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 	if (test_bit(DOMAIN_ATTR_FAST, smmu_domain->attributes)) {
 		fmt = ARM_V8L_FAST;
 		ret = qcom_iommu_get_fast_iova_range(dev,
-					&pgtbl_info.iova_base,
-					&pgtbl_info.iova_end);
+					&pgtbl_info->iova_base,
+					&pgtbl_info->iova_end);
 		if (ret < 0)
 			goto out_unlock;
 	}
@@ -1645,8 +1671,8 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 	else
 		cfg->asid = cfg->cbndx;
 
-	pgtbl_info.iommu_pgtbl_ops = &arm_smmu_pgtable_ops;
-	pgtbl_info.cfg = (struct io_pgtable_cfg) {
+	pgtbl_info->iommu_pgtbl_ops = &arm_smmu_pgtable_ops;
+	pgtbl_info->cfg = (struct io_pgtable_cfg) {
 		.pgsize_bitmap	= smmu->pgsize_bitmap,
 		.ias		= ias,
 		.oas		= oas,
@@ -1667,12 +1693,13 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 		pgtbl_cfg->quirks |= IO_PGTABLE_QUIRK_NON_STRICT;
 	pgtbl_cfg->quirks |= arm_smmu_domain_get_qcom_quirks(smmu_domain, smmu);
 
-	pgtbl_ops = qcom_alloc_io_pgtable_ops(fmt, &pgtbl_info, smmu_domain);
+	pgtbl_ops = qcom_alloc_io_pgtable_ops(fmt, pgtbl_info, smmu_domain);
 	if (!pgtbl_ops) {
 		ret = -ENOMEM;
 		goto out_clear_smmu;
 	}
 
+	smmu_domain->pgtbl_fmt = fmt;
 	/* Update the domain's page sizes to reflect the page table format */
 	domain->pgsize_bitmap = pgtbl_cfg->pgsize_bitmap;
 
@@ -2402,7 +2429,7 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 	 * to 5-10sec worth of reprogramming the context bank, while
 	 * the system appears to be locked up to the user.
 	 */
-	pm_runtime_set_autosuspend_delay(smmu->dev, 20);
+	pm_runtime_set_autosuspend_delay(smmu->dev, 5);
 	pm_runtime_use_autosuspend(smmu->dev);
 
 out_power_off:
@@ -2525,6 +2552,15 @@ static void arm_smmu_flush_iotlb_all(struct iommu_domain *domain)
 {
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_device *smmu = smmu_domain->smmu;
+	unsigned long flags;
+
+	spin_lock_irqsave(&smmu_domain->iotlb_gather_lock, flags);
+	if (smmu_domain->skip_tlb_management) {
+		smmu_domain->deferred_flush = false;
+		spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
+		return;
+	}
+	spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
 
 	if (smmu_domain->flush_ops) {
 		arm_smmu_rpm_get(smmu);
@@ -2554,8 +2590,10 @@ static void __arm_smmu_flush_iotlb_all(struct iommu_domain *domain, bool force)
 	 * 1) GPU - old implementation uses upstream io-pgtable-arm.c
 	 * 2) fastmap
 	 * once these users have gone away, force parameter can be removed.
+	 *
+	 * Also return, If skip_tlb_management is set.
 	 */
-	if (!force && !smmu_domain->deferred_flush) {
+	if (smmu_domain->skip_tlb_management || (!force && !smmu_domain->deferred_flush)) {
 		spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
 		return;
 	}
@@ -2742,8 +2780,17 @@ static struct iommu_device * arm_smmu_probe_device(struct device *dev)
 			goto out_free;
 	} else if (fwspec && fwspec->ops == &arm_smmu_ops.iommu_ops) {
 		smmu = arm_smmu_get_by_fwnode(fwspec->iommu_fwnode);
+
+		/*
+		 * Defer probe if the relevant SMMU instance hasn't finished
+		 * probing yet. This is a fragile hack and we'd ideally
+		 * avoid this race in the core code. Until that's ironed
+		 * out, however, this is the most pragmatic option on the
+		 * table.
+		 */
 		if (!smmu)
-			return ERR_PTR(-ENODEV);
+			return ERR_PTR(dev_err_probe(dev, -EPROBE_DEFER,
+						"smmu dev has not bound yet\n"));
 	} else {
 		return ERR_PTR(-ENODEV);
 	}
@@ -3305,11 +3352,23 @@ static int arm_smmu_get_asid_nr(struct iommu_domain *domain)
 	return ret;
 }
 
+static void  arm_smmu_skip_tlb_management(struct iommu_domain *domain,
+					bool skip)
+{
+	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
+	unsigned long flags;
+
+	spin_lock_irqsave(&smmu_domain->iotlb_gather_lock, flags);
+	smmu_domain->skip_tlb_management = skip;
+	spin_unlock_irqrestore(&smmu_domain->iotlb_gather_lock, flags);
+}
+
 static struct qcom_iommu_ops arm_smmu_ops = {
 	.iova_to_phys_hard = arm_smmu_iova_to_phys_hard,
 	.sid_switch		= arm_smmu_sid_switch,
 	.get_fault_ids		= arm_smmu_get_fault_ids,
 	.get_asid_nr		= arm_smmu_get_asid_nr,
+	.skip_tlb_management	= arm_smmu_skip_tlb_management,
 
 	.iommu_ops = {
 		.capable		= arm_smmu_capable,
@@ -4266,11 +4325,88 @@ static int arm_smmu_pm_prepare(struct device *dev)
 	return (atomic_read(&dev->power.usage_count) == 1) ? -EINPROGRESS : 0;
 }
 
+static int __maybe_unused arm_smmu_pm_restore_early(struct device *dev)
+{
+	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
+	struct arm_smmu_domain *smmu_domain;
+	struct io_pgtable_ops *pgtbl_ops;
+	struct io_pgtable_cfg *pgtbl_cfg;
+	struct arm_smmu_cb *cb;
+	int idx, ret;
+
+	/*
+	 * Restore the page tables for secure vmids as they are lost
+	 * after hibernation in secure code context.
+	 */
+	for (idx = 0; idx < smmu->num_context_banks; idx++) {
+		cb = &smmu->cbs[idx];
+		if (!cb->cfg)
+			continue;
+		smmu_domain = cb_cfg_to_smmu_domain(cb->cfg);
+		if (!arm_smmu_has_secure_vmid(smmu_domain))
+			continue;
+		pgtbl_cfg = &smmu_domain->pgtbl_info.cfg;
+		pgtbl_ops = qcom_alloc_io_pgtable_ops(smmu_domain->pgtbl_fmt,
+					&smmu_domain->pgtbl_info, smmu_domain);
+		if (!pgtbl_ops) {
+			dev_err(smmu->dev,
+			"failed to allocate page tables	during pm restore for cxt %d %s\n",
+				idx, dev_name(dev));
+			return -ENOMEM;
+		}
+		smmu_domain->pgtbl_ops = pgtbl_ops;
+		arm_smmu_init_context_bank(smmu_domain, pgtbl_cfg);
+
+		arm_smmu_secure_domain_lock(smmu_domain);
+		ret = arm_smmu_assign_table(smmu_domain);
+		arm_smmu_secure_domain_unlock(smmu_domain);
+		if (ret)
+			dev_err(smmu->dev, "Failed to hyp-assign page table memory cxt:%d dev:%s\n",
+					idx, dev_name(smmu_domain->dev));
+	}
+	arm_smmu_pm_resume(dev);
+	ret = arm_smmu_runtime_suspend(dev);
+	if (ret) {
+		dev_err(dev, "Failed to suspend\n");
+		return ret;
+	}
+	return 0;
+}
+
+static int __maybe_unused arm_smmu_pm_freeze_late(struct device *dev)
+{
+	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
+	struct arm_smmu_domain *smmu_domain;
+	struct arm_smmu_cb *cb;
+	int idx;
+
+	for (idx = 0; idx < smmu->num_context_banks; idx++) {
+		cb = &smmu->cbs[idx];
+		if (cb && cb->cfg) {
+			smmu_domain = cb_cfg_to_smmu_domain(cb->cfg);
+			if (smmu_domain &&
+				arm_smmu_has_secure_vmid(smmu_domain)) {
+				qcom_free_io_pgtable_ops(smmu_domain->pgtbl_ops);
+
+				arm_smmu_secure_domain_lock(smmu_domain);
+				arm_smmu_secure_pool_destroy(smmu_domain);
+				arm_smmu_unassign_table(smmu_domain);
+				arm_smmu_secure_domain_unlock(smmu_domain);
+			}
+		}
+	}
+	return 0;
+}
+
 static const struct dev_pm_ops arm_smmu_pm_ops = {
 	.prepare = arm_smmu_pm_prepare,
-	SET_SYSTEM_SLEEP_PM_OPS(arm_smmu_pm_suspend, arm_smmu_pm_resume)
 	SET_RUNTIME_PM_OPS(arm_smmu_runtime_suspend,
 			   arm_smmu_runtime_resume, NULL)
+	.suspend  = arm_smmu_pm_suspend,
+	.resume   = arm_smmu_pm_resume,
+	.thaw_early = arm_smmu_pm_restore_early,
+	.freeze_late = arm_smmu_pm_freeze_late,
+	.restore_early = arm_smmu_pm_restore_early,
 };
 
 

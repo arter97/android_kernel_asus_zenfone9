@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/iommu.h>
@@ -146,11 +146,6 @@ static void log_profiling_info(struct adreno_device *adreno_dev, u32 *rcvd)
 	if (context == NULL)
 		return;
 
-	/* protected GPU work must not be reported */
-	if  (!(context->flags & KGSL_CONTEXT_SECURE))
-		kgsl_work_period_update(device, context->proc_priv->period,
-					     cmd->active);
-
 	info.timestamp = cmd->ts;
 	info.rb_id = adreno_get_level(context);
 	info.gmu_dispatch_queue = context->gmu_dispatch_queue;
@@ -162,6 +157,10 @@ static void log_profiling_info(struct adreno_device *adreno_dev, u32 *rcvd)
 	else
 		info.active = cmd->active;
 	info.retired_on_gmu = cmd->retired_on_gmu;
+
+	/* protected GPU work must not be reported */
+	if  (!(context->flags & KGSL_CONTEXT_SECURE))
+		kgsl_work_period_update(device, context->proc_priv->period, info.active);
 
 	trace_adreno_cmdbatch_retired(context, &info, 0, 0, 0);
 
@@ -1180,7 +1179,11 @@ int a6xx_hwsched_hfi_start(struct adreno_device *adreno_dev)
 	if (ret)
 		goto err;
 
-	ret = a6xx_hfi_send_feature_ctrl(adreno_dev, HFI_FEATURE_A6XX_KPROF,
+	if (adreno_is_a621(adreno_dev))
+		ret = a6xx_hfi_send_feature_ctrl(adreno_dev, HFI_FEATURE_KPROF,
+			1, 0);
+	else
+		ret = a6xx_hfi_send_feature_ctrl(adreno_dev, HFI_FEATURE_A6XX_KPROF,
 			1, 0);
 	if (ret)
 		goto err;

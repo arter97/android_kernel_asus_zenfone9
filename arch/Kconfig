@@ -9,6 +9,14 @@
 #
 source "arch/$(SRCARCH)/Kconfig"
 
+config ARCH_CONFIGURES_CPU_MITIGATIONS
+	bool
+
+if !ARCH_CONFIGURES_CPU_MITIGATIONS
+config CPU_MITIGATIONS
+	def_bool y
+endif
+
 menu "General architecture-dependent options"
 
 config CRASH_CORE
@@ -603,6 +611,7 @@ config SHADOW_CALL_STACK
 	bool "Clang Shadow Call Stack"
 	depends on CC_IS_CLANG && ARCH_SUPPORTS_SHADOW_CALL_STACK
 	depends on DYNAMIC_FTRACE_WITH_REGS || !FUNCTION_GRAPH_TRACER
+	depends on MMU
 	help
 	  This option enables Clang's Shadow Call Stack, which uses a
 	  shadow stack to protect function return addresses from being
@@ -1191,6 +1200,14 @@ config ARCH_SPLIT_ARG64
 	help
 	   If a 32-bit architecture requires 64-bit arguments to be split into
 	   pairs of 32-bit arguments, select this option.
+
+config ARCH_HAS_HW_PTE_YOUNG
+	bool
+	help
+	  Architectures that select this option are capable of setting the
+	  accessed bit in PTE entries when using them as part of linear address
+	  translations. Architectures that require runtime check should select
+	  this option and override arch_has_hw_pte_young().
 
 config ARCH_HAS_NONLEAF_PMD_YOUNG
 	bool

@@ -253,7 +253,6 @@ void Batinfo_WT(struct file_message *file_msg, char *buf, int length)
     if (!in_interrupt() && !in_atomic() && !irqs_disabled()){
         mutex_lock(&mA);
     }
-    CHG_DBG_E("%s +++\n", __func__);
 
     buffer = &(file_msg->message)[(file_msg->write*Bat_SAFETY_STR_MAXLEN)];
     file_msg->write++;
@@ -281,7 +280,6 @@ static int file_op(const char *filename, loff_t offset, char *buf, int length, i
     char *pchar;
     struct file_message *file_msg;
     int readID = 0;
-    CHG_DBG_E("%s +++\n", __func__);
 
     if(!strcmp(filename, BAT_SAFETY_FILE_NAME))
     {
@@ -334,7 +332,6 @@ static int file_op(const char *filename, loff_t offset, char *buf, int length, i
 static struct file_message* get_file_msg(struct file *file)
 {
     struct file_message *file_msg;
-    CHG_DBG_E("%s +++\n", __func__);
 
     if(!strcmp(file->f_path.dentry->d_iname, "bat_safety_wr"))
     {
@@ -370,7 +367,6 @@ static ssize_t bat_safety_write(struct file *file, const char __user *buf, size_
     struct file_message *file_msg;
     if (count > Bat_SAFETY_STR_MAXLEN)
             count = Bat_SAFETY_STR_MAXLEN;
-    CHG_DBG_E("%s +++\n", __func__);
 
     memset(messages, 0, sizeof(messages));
     if (copy_from_user(messages, buf, count))
@@ -395,7 +391,6 @@ static ssize_t bat_safety_read(struct file *file, char __user *buf,
     int error = 0;
     struct file_message *file_msg;
     file_msg = get_file_msg(file);
-    CHG_DBG_E("%s +++\n", __func__);
 
     error = wait_event_interruptible(log_wait,
                          file_msg->read != file_msg->write);
@@ -428,7 +423,6 @@ static int backup_bat_percentage(void)
     char buf[5]={0};
     int bat_percent = 0;
     int rc;
-    CHG_DBG_E("%s +++\n", __func__);
 
     if(0 == g_cycle_count_data.reload_condition){
         bat_percent = 0;
@@ -452,7 +446,6 @@ static int backup_bat_safety(void)
 {
     char buf[70]={0};
     int rc;
-    CHG_DBG_E("%s +++\n", __func__);
 
     sprintf(buf, "%lu,%d,%lu,%lu,%lu\n",
         g_cycle_count_data.battery_total_time,
@@ -473,7 +466,6 @@ static int init_batt_cycle_count_data(void)
 {
     int rc = 0;
     struct CYCLE_COUNT_DATA buf;
-    CHG_DBG_E("%s +++\n", __func__);
 
     /* Read cycle count data from emmc */
     rc = file_op(CYCLE_COUNT_FILE_NAME, CYCLE_COUNT_DATA_OFFSET,
@@ -531,7 +523,6 @@ static int init_batt_cycle_count_data(void)
 static void write_back_cycle_count_data(void)
 {
     int rc;
-    CHG_DBG_E("%s +++\n", __func__);
 
     backup_bat_percentage();
     //backup_bat_cyclecount();
@@ -544,9 +535,8 @@ static void write_back_cycle_count_data(void)
         pr_err("%s:Write file:%s err!\n", __func__, CYCLE_COUNT_FILE_NAME);
 }
 
-static void asus_reload_battery_profile(int value){
-    CHG_DBG_E("%s +++\n", __func__);
-
+static void asus_reload_battery_profile(int value)
+{
     //save current status
     write_back_cycle_count_data();
 
@@ -566,7 +556,6 @@ static void asus_judge_reload_condition(struct bat_safety_condition *safety_cond
     unsigned long local_high_temp_time = g_cycle_count_data.high_temp_total_time;
     //unsigned long local_high_temp_vol_time = g_cycle_count_data.high_temp_vol_time;
     unsigned long local_battery_total_time = g_cycle_count_data.battery_total_time;
-    CHG_DBG_E("%s +++\n", __func__);
 
     temp_condition = g_cycle_count_data.reload_condition;
     if(temp_condition >= 4){ //if condition=2 will return
@@ -716,8 +705,6 @@ static void update_battery_safe(void)
     int capacity;
     union power_supply_propval prop = {};
 
-    CHG_DBG("[BAT][CHG]%s +++", __func__);
-
     if(g_asuslib_init != true){
         pr_err("asuslib init is not ready");
         return;
@@ -782,8 +769,6 @@ static void update_battery_safe(void)
 
 void battery_safety_worker(struct work_struct *work)
 {
-    pr_err("%s +++\n", __func__);
-
     update_battery_safe();
 
     cancel_delayed_work(&battery_safety_work);
@@ -1280,8 +1265,6 @@ static void create_batt_cycle_count_proc_file(void)
 static int reboot_shutdown_prep(struct notifier_block *this,
                   unsigned long event, void *ptr)
 {
-    CHG_DBG("%s +++\n", __func__);
-
     switch(event) {
     case SYS_RESTART:
     case SYS_POWER_OFF:

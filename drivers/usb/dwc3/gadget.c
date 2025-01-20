@@ -16,11 +16,15 @@
 #include <linux/pm_runtime.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/irq.h>
+#include <linux/irqdesc.h>
 #include <linux/list.h>
 #include <linux/dma-mapping.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
+
+#include <linux/usb/dwc3-msm.h>
 
 #include "debug.h"
 #include "core.h"
@@ -299,6 +303,11 @@ int dwc3_send_gadget_ep_cmd(struct dwc3_ep *dep, unsigned int cmd,
 
 	int			cmd_status = 0;
 	int			ret = -EINVAL;
+
+	if (cmd == DWC3_DEPCMD_ENDTRANSFER)
+		dwc3_msm_notify_event(dwc,
+				DWC3_CONTROLLER_NOTIFY_DISABLE_UPDXFER,
+				dep->number);
 
 	/*
 	 * When operating in USB 2.0 speeds (HS/FS), if GUSB2PHYCFG.ENBLSLPM or
@@ -1200,11 +1209,14 @@ static u32 dwc3_calc_trbs_left(struct dwc3_ep *dep)
 	 * pending to be processed by the driver.
 	 */
 	if (dep->trb_enqueue == dep->trb_dequeue) {
+		struct dwc3_request *req;
+
 		/*
-		 * If there is any request remained in the started_list at
-		 * this point, that means there is no TRB available.
+		 * If there is any request remained in the started_list with
+		 * active TRBs at this point, then there is no TRB available.
 		 */
-		if (!list_empty(&dep->started_list))
+		req = next_request(&dep->started_list);
+		if (req && req->num_trbs)
 			return 0;
 
 		return DWC3_TRB_NUM - 1;
@@ -1432,8 +1444,8 @@ static int dwc3_prepare_trbs_sg(struct dwc3_ep *dep,
 	struct scatterlist *s;
 	int		i;
 	unsigned int length = req->request.length;
-	unsigned int remaining = req->request.num_mapped_sgs
-		- req->num_queued_sgs;
+	unsigned int remaining = req->num_pending_sgs;
+	unsigned int num_queued_sgs = req->request.num_mapped_sgs - remaining;
 	unsigned int num_trbs = req->num_trbs;
 	bool needs_extra_trb = dwc3_needs_extra_trb(dep, req);
 
@@ -1441,7 +1453,7 @@ static int dwc3_prepare_trbs_sg(struct dwc3_ep *dep,
 	 * If we resume preparing the request, then get the remaining length of
 	 * the request and resume where we left off.
 	 */
-	for_each_sg(req->request.sg, s, req->num_queued_sgs, i)
+	for_each_sg(req->request.sg, s, num_queued_sgs, i)
 		length -= sg_dma_len(s);
 
 	for_each_sg(sg, s, remaining, i) {
@@ -1701,7 +1713,6 @@ static int __dwc3_gadget_get_frame(struct dwc3 *dwc)
  */
 static int __dwc3_stop_active_transfer(struct dwc3_ep *dep, bool force, bool interrupt)
 {
-	struct dwc3 *dwc = dep->dwc;
 	struct dwc3_gadget_ep_cmd_params params;
 	u32 cmd;
 	int ret;
@@ -1726,8 +1737,7 @@ static int __dwc3_stop_active_transfer(struct dwc3_ep *dep, bool force, bool int
 	dep->resource_index = 0;
 
 	if (!interrupt) {
-		if (!DWC3_IP_IS(DWC3) || DWC3_VER_IS_PRIOR(DWC3, 310A))
-			mdelay(1);
+		mdelay(1);
 		dep->flags &= ~DWC3_EP_TRANSFER_STARTED;
 	} else if (!ret) {
 		dep->flags |= DWC3_EP_END_TRANSFER_PENDING;
@@ -2494,6 +2504,34 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 	if (pm_runtime_suspended(dwc->dev))
 		return 0;
 
+	if (is_on) {
+		/*
+		 * DWC3 gadget IRQ uses a threaded handler which normally runs
+		 * at SCHED_FIFO priority.  If it gets busy processing a high
+		 * volume of events (usually EP events due to heavy traffic) it
+		 * can potentially starve non-RT taks from running and trigger
+		 * RT throttling in the scheduler; on some build configs this
+		 * will panic.  So lower the thread's priority to run as non-RT
+		 * (with a nice value equivalent to a high-priority workqueue).
+		 * It has been found to not have noticeable performance impact.
+		 */
+		struct irq_desc *irq_desc = irq_to_desc(dwc->irq_gadget);
+		struct irqaction *action = irq_desc ? irq_desc->action : NULL;
+
+		for ( ; action != NULL; action = action->next) {
+			if (action->thread) {
+				dev_info(dwc->dev, "Set IRQ thread:%s pid:%d to SCHED_NORMAL prio\n",
+					action->thread->comm, action->thread->pid);
+				sched_set_normal(action->thread, MIN_NICE);
+				break;
+			}
+		}
+	} else {
+		dwc3_core_stop_hw_active_transfers(dwc);
+		dwc3_msm_notify_event(dwc, DWC3_GSI_EVT_BUF_CLEAR, 0);
+		dwc3_msm_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_CLEAR_DB, 0);
+	}
+
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 	if (is_on) {
 		if (DWC3_VER_IS_WITHIN(DWC3, ANY, 187A)) {
@@ -2612,6 +2650,8 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	is_on = !!is_on;
 
+	dwc3_msm_notify_event(dwc, DWC3_CONTROLLER_PULLUP_ENTER, is_on);
+
 	vdwc->softconnect = is_on;
 
 	/*
@@ -2621,8 +2661,10 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	 */
 	if (!is_on) {
 		pm_runtime_barrier(dwc->dev);
-		if (pm_runtime_suspended(dwc->dev))
-			return 0;
+		if (pm_runtime_suspended(dwc->dev)) {
+			ret = 0;
+			goto out;
+		}
 	}
 
 	/*
@@ -2635,12 +2677,13 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 		pm_runtime_put(dwc->dev);
 		if (ret < 0)
 			pm_runtime_set_suspended(dwc->dev);
-		return ret;
+		goto out;
 	}
 
 	if (dwc->pullups_connected == is_on) {
 		pm_runtime_put(dwc->dev);
-		return 0;
+		ret = 0;
+		goto out;
 	}
 
 	synchronize_irq(dwc->irq_gadget);
@@ -2654,6 +2697,8 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	pm_runtime_put(dwc->dev);
 
+out:
+	dwc3_msm_notify_event(dwc, DWC3_CONTROLLER_PULLUP_EXIT, is_on);
 	return ret;
 }
 
@@ -2737,6 +2782,12 @@ static int __dwc3_gadget_start(struct dwc3 *dwc)
 	u32			reg;
 
 	/*
+	 * Setup USB GSI event buffer as controller soft reset has cleared
+	 * configured event buffer.
+	 */
+	dwc3_msm_notify_event(dwc, DWC3_GSI_EVT_BUF_SETUP, 0);
+
+	/*
 	 * Use IMOD if enabled via dwc->imod_interval. Otherwise, if
 	 * the core supports IMOD, disable it.
 	 */
@@ -2802,6 +2853,7 @@ static int __dwc3_gadget_start(struct dwc3 *dwc)
 	dwc3_ep0_out_start(dwc);
 
 	dwc3_gadget_enable_irq(dwc);
+	dwc3_enable_susphy(dwc, true);
 
 	return 0;
 
@@ -3124,6 +3176,8 @@ static int dwc3_gadget_init_out_endpoint(struct dwc3_ep *dep)
 	else
 		size /= 3;
 
+	if (dep->number >= 2)
+		size = min_t(int, size, 1024);
 	usb_ep_set_maxpacket_limit(&dep->endpoint, size);
 	dep->endpoint.max_streams = 16;
 	dep->endpoint.ops = &dwc3_gadget_ep_ops;
@@ -3865,6 +3919,8 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 {
 	u32			reg;
 
+	dwc3_msm_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_CLEAR_DB, 0);
+
 	/*
 	 * Ideally, dwc3_reset_gadget() would trigger the function
 	 * drivers to stop any active transfers through ep disable.
@@ -3946,6 +4002,8 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 
 	if (!vdwc->softconnect)
 		return;
+
+	dwc3_msm_notify_event(dwc, DWC3_CONTROLLER_CONNDONE_EVENT, 0);
 
 	reg = dwc3_readl(dwc->regs, DWC3_DSTS);
 	speed = reg & DWC3_DSTS_CONNECTSPD;
@@ -4578,6 +4636,7 @@ void dwc3_gadget_exit(struct dwc3 *dwc)
 	if (!dwc->gadget)
 		return;
 
+	dwc3_enable_susphy(dwc, false);
 	usb_del_gadget(dwc->gadget);
 	dwc3_gadget_free_endpoints(dwc);
 	usb_put_gadget(dwc->gadget);
@@ -4628,15 +4687,4 @@ err1:
 
 err0:
 	return ret;
-}
-
-void dwc3_gadget_process_pending_events(struct dwc3 *dwc)
-{
-	if (dwc->pending_events) {
-		dwc3_interrupt(dwc->irq_gadget, dwc->ev_buf);
-		dwc3_thread_interrupt(dwc->irq_gadget, dwc->ev_buf);
-		pm_runtime_put(dwc->dev);
-		dwc->pending_events = false;
-		enable_irq(dwc->irq_gadget);
-	}
 }

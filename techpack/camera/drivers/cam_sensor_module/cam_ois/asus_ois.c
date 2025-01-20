@@ -442,6 +442,7 @@ int cam_ois_write_byte(struct cam_ois_ctrl_t *ctrl, uint32_t reg_addr, uint32_t 
 void OIS_S4W_FW_Update(void);
 unsigned char Current_OIS_Status=0;
 unsigned char Target_OIS_Status=0;
+static void XYCoeffecBoundaryLimit(uint32_t addr);
 static chip_check_result_t check_chip_info(struct cam_ois_ctrl_t *o_ctrl)
 {
 	int rc=0;
@@ -556,6 +557,8 @@ Current_OIS_Status=0;
 		if ( chip_id<100000 || chip_id>999999) Current_OIS_Status=1;
 	}
 
+	XYCoeffecBoundaryLimit(0x27c);
+	XYCoeffecBoundaryLimit(0x294);
 	return result;
 }
 static int ois_power_up(struct cam_ois_ctrl_t *o_ctrl)
@@ -642,8 +645,26 @@ static int ois_probe_status_proc_read(struct seq_file *buf, void *v)
 	return 0;
 }
 
+#define OIS_PIC_X_ORG_DATA 254
+#define OIS_PIC_Y_ORG_DATA 253
+static uint32_t ois_pic_x_org_data = 0;
+static uint32_t ois_pic_y_org_data = 0;
+
 static int ois_fw_status_proc_read(struct seq_file *buf, void *v)
 {
+
+	if (Target_OIS_Status==OIS_PIC_X_ORG_DATA) {
+		pr_info("[OIS][PIC] Get PIC org X=%d\n", ois_pic_x_org_data);
+		seq_printf(buf, "%d\n", ois_pic_x_org_data);
+		return 0;
+	}
+
+	if (Target_OIS_Status==OIS_PIC_Y_ORG_DATA) {
+		pr_info("[OIS][PIC] Get PIC org Y=%d\n", ois_pic_y_org_data);
+		seq_printf(buf, "%d\n", ois_pic_y_org_data);
+		return 0;
+	}
+
 	pr_info("[OIS] FW read Current_OIS_Status=%d\n", Current_OIS_Status);
 	seq_printf(buf, "%d\n", Current_OIS_Status);
 	return 0;
@@ -685,6 +706,14 @@ static ssize_t ois_fw_status_write(struct file *dev, const char *buf, size_t len
 	}
 
 	sscanf(messages, "%d", &Target_OIS_Status);
+	if (Target_OIS_Status==OIS_PIC_X_ORG_DATA) {
+		pr_info("[OIS][PIC] Get PIC org X=%d\n", Current_OIS_Status);
+	}
+
+	if (Target_OIS_Status==OIS_PIC_Y_ORG_DATA) {
+		pr_info("[OIS][PIC] Get PIC org Y=%d\n", Current_OIS_Status);
+	}
+
 
 	//Target_OIS_Status=1, update fw
 	if (Target_OIS_Status==1) {
@@ -2909,6 +2938,35 @@ unsigned char IIC_WaitSendByte(unsigned short addr, unsigned char SendData) {
 	pr_err("[OIS] IIC_WaitSendByte, [%X]=0x%X. OK", addr, SendData);
 	return 0;
 }
+#define X_PID_Filter_Gain_Address 0x27c
+#define Y_PID_Filter_Gain_Address 0x294
+
+static bool FlashWriteResultCheckForCaliOnly(void);
+
+static void XYCoeffecBoundaryLimit(uint32_t addr) {
+#define XY_COF_BOUNDARY 0x30D40
+//#define XY_COF_BOUNDARY 0x249F1
+#define XY_COF_LIMIT 0x249F0
+	uint32_t data;
+	IIC_DataRead(addr, 4,  (uint8_t *)&data);
+	if ( data>XY_COF_BOUNDARY) {
+		pr_err("[OIS][XYCoff] reg 0x%x=0x%x is larger then 0x%x, limit to 0x%x", addr, data, XY_COF_BOUNDARY, XY_COF_LIMIT);
+		if ( addr == Y_PID_Filter_Gain_Address ) {
+			ois_pic_y_org_data=data;
+		} else {
+			if ( addr == X_PID_Filter_Gain_Address ) {
+				ois_pic_x_org_data=data;
+			}
+		}
+		data=XY_COF_LIMIT;
+		IIC_DataSend(addr, 4,  (uint8_t *)&data);
+		FlashWriteResultCheckForCaliOnly();
+	} else {
+//remove below debug info
+		pr_err("[OIS][XYCoff] reg 0x%x=0x%x is smaller then 0x%x, skip apply limit", addr, data, XY_COF_BOUNDARY);
+	}
+
+}
 
 
 int32_t IIC_DataRead(uint32_t addr, int size, uint8_t *data){
@@ -3125,7 +3183,7 @@ static int asus_ois_read_fw(const char* fileName, char * buf, uint32_t* readSize
 
 
 
-bool FlashWriteResultCheckForCaliOnly(void) {
+static bool FlashWriteResultCheckForCaliOnly(void) {
 	if( IIC_WaitSendByte(0x0003, 0x01))
 	{
 		pr_err("[OIS] S4W calibration flash write Fail!!");

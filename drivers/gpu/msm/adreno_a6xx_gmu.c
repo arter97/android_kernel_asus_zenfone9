@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator-levels.h>
@@ -197,6 +197,7 @@ struct adreno_device *a6xx_gmu_to_adreno(struct a6xx_gmu_device *gmu)
 
 #define RSC_CMD_OFFSET 2
 #define PDC_CMD_OFFSET 4
+#define PDC_ENABLE_REG_VALUE 0x80000001
 
 static void _regwrite(void __iomem *regbase,
 		unsigned int offsetwords, unsigned int value)
@@ -305,23 +306,31 @@ int a6xx_load_pdc_ucode(struct adreno_device *adreno_dev)
 		seq_offset = 0x280000;
 	}
 
-	/*
-	 * Map the starting address for pdc_cfg programming. If the pdc_cfg
-	 * resource is not available use an offset from the base PDC resource.
-	 */
+	/* Get pointers to each of the possible PDC resources */
 	res_pdc = platform_get_resource_byname(gmu->pdev, IORESOURCE_MEM,
 			"kgsl_gmu_pdc_reg");
 	res_cfg = platform_get_resource_byname(gmu->pdev, IORESOURCE_MEM,
 			"kgsl_gmu_pdc_cfg");
-	if (res_cfg)
-		cfg = ioremap(res_cfg->start, resource_size(res_cfg));
-	else if (res_pdc)
-		cfg = ioremap(res_pdc->start + cfg_offset, 0x10000);
 
-	if (!cfg) {
-		dev_err(&gmu->pdev->dev, "Failed to map PDC CFG\n");
-		return -ENODEV;
+	/*
+	 * Map the starting address for pdc_cfg programming. If the pdc_cfg
+	 * resource is not available use an offset from the base PDC resource.
+	 */
+	if (gmu->pdc_cfg_base == NULL) {
+		if (res_cfg)
+			gmu->pdc_cfg_base = devm_ioremap(&gmu->pdev->dev,
+				res_cfg->start, resource_size(res_cfg));
+		else if (res_pdc)
+			gmu->pdc_cfg_base = devm_ioremap(&gmu->pdev->dev,
+				res_pdc->start + cfg_offset, 0x10000);
+
+		if (!gmu->pdc_cfg_base) {
+			dev_err(&gmu->pdev->dev, "Failed to map PDC CFG\n");
+			return -ENODEV;
+		}
 	}
+
+	cfg = gmu->pdc_cfg_base;
 
 	/* PDC is programmed in AOP for newer platforms */
 	if (a6xx_core->pdc_in_aop)
@@ -331,18 +340,24 @@ int a6xx_load_pdc_ucode(struct adreno_device *adreno_dev)
 	 * Map the starting address for pdc_seq programming. If the pdc_seq
 	 * resource is not available use an offset from the base PDC resource.
 	 */
-	res_seq = platform_get_resource_byname(gmu->pdev, IORESOURCE_MEM,
-			"kgsl_gmu_pdc_seq");
-	if (res_seq)
-		seq = ioremap(res_seq->start, resource_size(res_seq));
-	else if (res_pdc)
-		seq = ioremap(res_pdc->start + seq_offset, 0x10000);
+	if (gmu->pdc_seq_base == NULL) {
+		res_seq = platform_get_resource_byname(gmu->pdev, IORESOURCE_MEM,
+				"kgsl_gmu_pdc_seq");
 
-	if (!seq) {
-		dev_err(&gmu->pdev->dev, "Failed to map PDC SEQ\n");
-		iounmap(cfg);
-		return -ENODEV;
+		if (res_seq)
+			gmu->pdc_seq_base = devm_ioremap(&gmu->pdev->dev,
+				res_seq->start, resource_size(res_seq));
+		else if (res_pdc)
+			gmu->pdc_seq_base = devm_ioremap(&gmu->pdev->dev,
+				res_pdc->start + seq_offset, 0x10000);
+
+		if (!gmu->pdc_seq_base) {
+			dev_err(&gmu->pdev->dev, "Failed to map PDC SEQ\n");
+			return -ENODEV;
+		}
 	}
+
+	seq = gmu->pdc_seq_base;
 
 	/* Load PDC sequencer uCode for power up and power down sequence */
 	_regwrite(seq, PDC_GPU_SEQ_MEM_0, 0xFEBEA1E1);
@@ -350,8 +365,6 @@ int a6xx_load_pdc_ucode(struct adreno_device *adreno_dev)
 	_regwrite(seq, PDC_GPU_SEQ_MEM_0 + 2, 0x8382A6E0);
 	_regwrite(seq, PDC_GPU_SEQ_MEM_0 + 3, 0xBCE3E284);
 	_regwrite(seq, PDC_GPU_SEQ_MEM_0 + 4, 0x002081FC);
-
-	iounmap(seq);
 
 	/* Set TCS commands used by PDC sequence for low power modes */
 	_regwrite(cfg, PDC_GPU_TCS1_CMD_ENABLE_BANK, 7);
@@ -413,11 +426,10 @@ int a6xx_load_pdc_ucode(struct adreno_device *adreno_dev)
 done:
 	/* Setup GPU PDC */
 	_regwrite(cfg, PDC_GPU_SEQ_START_ADDR, 0);
-	_regwrite(cfg, PDC_GPU_ENABLE_PDC, 0x80000001);
+	_regwrite(cfg, PDC_GPU_ENABLE_PDC, PDC_ENABLE_REG_VALUE);
 
 	/* ensure no writes happen before the uCode is fully written */
 	wmb();
-	iounmap(cfg);
 	return 0;
 }
 
@@ -1715,6 +1727,14 @@ static void a6xx_gmu_pwrctrl_suspend(struct adreno_device *adreno_dev)
 
 	/* Disconnect GPU from BUS is not needed if CX GDSC goes off later */
 
+	/*
+	 * GEMNOC can enter power collapse state during GPU power down sequence.
+	 * This could abort CX GDSC collapse. Assert Qactive to avoid this.
+	 */
+	if ((adreno_is_a662(adreno_dev) || adreno_is_a621(adreno_dev) ||
+			adreno_is_a635(adreno_dev)))
+		gmu_core_regwrite(device, A6XX_GPU_GMU_CX_GMU_CX_FALNEXT_INTF, 0x1);
+
 	/* Check no outstanding RPMh voting */
 	a6xx_complete_rpmh_votes(adreno_dev, GPU_RESET_TIMEOUT);
 
@@ -1849,6 +1869,15 @@ static int a6xx_gmu_notify_slumber(struct adreno_device *adreno_dev)
 out:
 	/* Make sure the fence is in ALLOW mode */
 	gmu_core_regwrite(device, A6XX_GMU_AO_AHB_FENCE_CTRL, 0);
+
+	/*
+	 * GEMNOC can enter power collapse state during GPU power down sequence.
+	 * This could abort CX GDSC collapse. Assert Qactive to avoid this.
+	 */
+	if ((adreno_is_a662(adreno_dev) || adreno_is_a621(adreno_dev) ||
+			adreno_is_a635(adreno_dev)))
+		gmu_core_regwrite(device, A6XX_GPU_GMU_CX_GMU_CX_FALNEXT_INTF, 0x1);
+
 	return ret;
 }
 
@@ -2223,6 +2252,32 @@ int a6xx_gmu_enable_clks(struct adreno_device *adreno_dev)
 	return 0;
 }
 
+static void a6xx_gmu_force_first_boot(struct kgsl_device *device)
+{
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct a6xx_gmu_device *gmu = to_a6xx_gmu(adreno_dev);
+	u32 val = 0;
+
+	if (gmu->pdc_cfg_base) {
+		kgsl_pwrctrl_enable_cx_gdsc(device, gmu->cx_gdsc);
+		a6xx_gmu_enable_clks(adreno_dev);
+
+		val = __raw_readl(gmu->pdc_cfg_base + (PDC_GPU_ENABLE_PDC << 2));
+
+		/* ensure this read operation is done before the next one */
+		rmb();
+
+		clk_bulk_disable_unprepare(gmu->num_clks, gmu->clks);
+		a6xx_gmu_disable_gdsc(adreno_dev);
+		a6xx_rdpm_cx_freq_update(gmu, 0);
+	}
+
+	if (val != PDC_ENABLE_REG_VALUE) {
+		clear_bit(GMU_PRIV_RSCC_SLEEP_DONE, &gmu->flags);
+		clear_bit(GMU_PRIV_PDC_RSC_LOADED, &gmu->flags);
+	}
+}
+
 static int a6xx_gmu_first_boot(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
@@ -2259,6 +2314,9 @@ static int a6xx_gmu_first_boot(struct adreno_device *adreno_dev)
 	/* Vote for minimal DDR BW for GMU to init */
 	level = pwr->pwrlevels[pwr->default_pwrlevel].bus_min;
 	icc_set_bw(pwr->icc_path, 0, kBps_to_icc(pwr->ddr_table[level]));
+
+	/* Clear any GPU faults that might have been left over */
+	adreno_clear_gpu_fault(adreno_dev);
 
 	ret = a6xx_gmu_device_start(adreno_dev);
 	if (ret)
@@ -2338,13 +2396,6 @@ static int a6xx_gmu_boot(struct adreno_device *adreno_dev)
 	if (ret)
 		goto gdsc_off;
 
-	/*
-	 * TLB operations are skipped during slumber. Incase CX doesn't
-	 * go down, it can result in incorrect translations due to stale
-	 * TLB entries. Flush TLB before boot up to ensure fresh start.
-	 */
-	kgsl_mmu_flush_tlb(&device->mmu);
-
 	ret = a6xx_rscc_wakeup_sequence(adreno_dev);
 	if (ret)
 		goto clks_gdsc_off;
@@ -2356,6 +2407,9 @@ static int a6xx_gmu_boot(struct adreno_device *adreno_dev)
 	a6xx_gmu_register_config(adreno_dev);
 
 	a6xx_gmu_irq_enable(adreno_dev);
+
+	/* Clear any GPU faults that might have been left over */
+	adreno_clear_gpu_fault(adreno_dev);
 
 	ret = a6xx_gmu_device_start(adreno_dev);
 	if (ret)
@@ -2432,6 +2486,19 @@ static int a6xx_gmu_acd_set(struct kgsl_device *device, bool val)
 	return adreno_power_cycle(adreno_dev, set_acd, &val);
 }
 
+static void a6xx_send_tlb_hint(struct kgsl_device *device, bool val)
+{
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct a6xx_gmu_device *gmu = to_a6xx_gmu(adreno_dev);
+
+	if (!gmu->domain)
+		return;
+
+	qcom_skip_tlb_management(&gmu->pdev->dev, val);
+	if (!val)
+		iommu_flush_iotlb_all(gmu->domain);
+}
+
 static const struct gmu_dev_ops a6xx_gmudev = {
 	.oob_set = a6xx_gmu_oob_set,
 	.oob_clear = a6xx_gmu_oob_clear,
@@ -2442,6 +2509,8 @@ static const struct gmu_dev_ops a6xx_gmudev = {
 	.scales_bandwidth = a6xx_gmu_scales_bandwidth,
 	.acd_set = a6xx_gmu_acd_set,
 	.send_nmi = a6xx_gmu_send_nmi,
+	.force_first_boot = a6xx_gmu_force_first_boot,
+	.send_tlb_hint = a6xx_send_tlb_hint,
 };
 
 static int a6xx_gmu_bus_set(struct adreno_device *adreno_dev, int buslevel,
@@ -2991,9 +3060,6 @@ static int a6xx_gpu_boot(struct adreno_device *adreno_dev)
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	int ret;
 
-	/* Clear any GPU faults that might have been left over */
-	adreno_clear_gpu_fault(adreno_dev);
-
 	adreno_set_active_ctxs_null(adreno_dev);
 
 	ret = kgsl_mmu_start(device);
@@ -3074,6 +3140,7 @@ static void gmu_idle_timer(struct timer_list *t)
 
 static int a6xx_boot(struct adreno_device *adreno_dev)
 {
+	bool bcl_state = adreno_dev->bcl_enabled;
 	struct a6xx_gmu_device *gmu = to_a6xx_gmu(adreno_dev);
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	int ret;
@@ -3083,7 +3150,23 @@ static int a6xx_boot(struct adreno_device *adreno_dev)
 
 	kgsl_pwrctrl_request_state(device, KGSL_STATE_ACTIVE);
 
-	ret = a6xx_gmu_boot(adreno_dev);
+	if (IS_ENABLED(CONFIG_QCOM_KGSL_HIBERNATION) &&
+		!test_bit(GMU_PRIV_PDC_RSC_LOADED, &gmu->flags)) {
+		/*
+		 * During hibernation entry ZAP was unloaded and
+		 * CBCAST BCL register is in reset state.
+		 * Set bcl_enabled to false to skip KMD's HFI request
+		 * to GMU for BCL feature, send BCL feature request to
+		 * GMU after ZAP load at GPU boot. This ensures that
+		 * Central Broadcast register was programmed before
+		 * enabling BCL.
+		 */
+		adreno_dev->bcl_enabled = false;
+		ret = a6xx_gmu_first_boot(adreno_dev);
+	} else {
+		ret = a6xx_gmu_boot(adreno_dev);
+	}
+
 	if (ret)
 		return ret;
 
@@ -3098,6 +3181,9 @@ static int a6xx_boot(struct adreno_device *adreno_dev)
 	set_bit(GMU_PRIV_GPU_STARTED, &gmu->flags);
 
 	device->pwrctrl.last_stat_updated = ktime_get();
+
+	if (IS_ENABLED(CONFIG_QCOM_KGSL_HIBERNATION))
+		adreno_dev->bcl_enabled = bcl_state;
 
 	kgsl_pwrctrl_set_state(device, KGSL_STATE_ACTIVE);
 

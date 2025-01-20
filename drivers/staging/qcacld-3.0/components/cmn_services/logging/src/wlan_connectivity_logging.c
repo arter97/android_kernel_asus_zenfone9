@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,7 @@
 #include "wlan_connectivity_logging.h"
 #include "wlan_cm_api.h"
 #include "wlan_mlme_main.h"
+#include "wlan_mlme_api.h"
 
 static struct wlan_connectivity_log_buf_data global_cl;
 
@@ -40,6 +41,9 @@ void wlan_connectivity_logging_start(struct wlan_objmgr_psoc *psoc,
 				     struct wlan_cl_osif_cbks *osif_cbks,
 				     void *osif_cb_context)
 {
+	if (!wlan_mlme_is_vendor_roam_score_algo_set(psoc))
+		return;
+
 	global_cl.head = qdf_mem_valloc(sizeof(*global_cl.head) *
 					WLAN_MAX_LOG_RECORDS);
 	if (!global_cl.head) {
@@ -401,6 +405,9 @@ wlan_connectivity_log_enqueue(struct wlan_log_record *new_record)
 	struct wlan_log_record *write_block;
 	enum QDF_OPMODE opmode;
 
+	if (!qdf_atomic_read(&global_cl.is_active))
+		return QDF_STATUS_E_FAILURE;
+
 	if (!new_record) {
 		logging_debug("NULL entry");
 		return QDF_STATUS_E_FAILURE;
@@ -541,4 +548,9 @@ wlan_connectivity_log_dequeue(void)
 	qdf_mem_free(data);
 
 	return QDF_STATUS_SUCCESS;
+}
+
+void wlan_connectivity_logging_init(void)
+{
+	qdf_atomic_set(&global_cl.is_active, 0);
 }

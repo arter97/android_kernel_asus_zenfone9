@@ -9,6 +9,7 @@
 #include <linux/device.h>
 
 #include "dsi_ai2201.h"
+#include "dsi_panel.h"
 
 #ifdef ASUS_AI2201_PROJECT
 #include <sde_encoder_phys.h>
@@ -292,6 +293,7 @@ static void display_exit_idle_mode()
 	else {
 		g_display->panel->fod_in_doze = true;
 		g_display->panel->aod_state = false;
+		g_display->panel->aod_mode = -1;
 		g_display->panel->panel_aod_last_bl = 0;
 	}
 }
@@ -595,6 +597,22 @@ void dsi_ai2201_frame_commit_cnt(struct drm_crtc *crtc)
 			dsi_ai2201_need_aod_reset(g_display->panel);
 			aod_delay_frames = 0;
 		}
+	}
+
+	// Set default backlight = 9, if nobody coming to set AOD HIGH/LOW.
+	if (display_commit_cnt == 0 && g_display->panel->aod_state) {
+		if (g_display->panel->aod_mode == -1) {
+			mutex_lock(&g_display->panel->panel_lock);
+			if (g_display->panel->panel_last_backlight > 15) {
+				DSI_LOG("DEFAULT AOD HIGH BACKLIGHT, panel_last_backlight = %d", g_display->panel->panel_last_backlight);
+				dsi_panel_set_backlight(g_display->panel, 61);
+			} else {
+				DSI_LOG("DEFAULT AOD LOW BACKLIGHT,  panel_last_backlight = %d", g_display->panel->panel_last_backlight);
+				dsi_panel_set_backlight(g_display->panel,  9);
+			}
+			mutex_unlock(&g_display->panel->panel_lock);
+		}
+		display_commit_cnt--;
 	}
 }
 
@@ -1212,6 +1230,7 @@ void dsi_ai2201_display_init(struct dsi_display *display)
 	g_display->panel->panel_aod_last_bl = 0;
 	g_display->panel->panel_bl_count = 0;
 	g_display->panel->aod_state = false;
+	g_display->panel->aod_mode = -1;
 	g_display->panel->dc_bl_delay = false;
 	g_display->panel->fod_in_doze = false;
 	g_display->panel->err_fg_irq_is_on = false;
@@ -1254,6 +1273,7 @@ void dsi_ai2201_set_panel_is_on(bool on)
 		g_display->panel->allow_panel_fod_hbm = 0;
 		g_display->panel->allow_fod_hbm_process = false;
 		g_display->panel->aod_state = false;
+		g_display->panel->aod_mode = -1;
 		g_display->panel->panel_aod_last_bl = 0;
 		g_display->panel->panel_bl_count = 0;
 		g_display->panel->fod_in_doze = false;
@@ -1541,6 +1561,10 @@ static bool dsi_ai2201_validate_c2_last(u32 c2_last)
 bool ai2201_need_skip_data(u32 c2_last)
 {
 	bool rc = false;
+
+	// need to update igc when entering doze mode
+	if (g_display->panel->aod_state)
+		return rc;
 
 	// don't validate if no dc change
 	if (!atomic_read(&g_display->panel->is_dc_change))

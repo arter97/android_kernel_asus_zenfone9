@@ -46,6 +46,7 @@
 #include <linux/fb.h>
 #include <linux/pm_qos.h>
 #include <linux/cpufreq.h>
+#include <linux/namei.h>
 #include <drm/drm_panel.h>
 #include <linux/soc/qcom/panel_event_notifier.h>
 #include "gf_spi.h"
@@ -109,6 +110,19 @@ static struct gf_key_map maps[] = {
 //	{ EV_KEY, GF_NAV_INPUT_HEAVY }, //remove unused key;asus_bsp++;
 #endif
 };
+
+static int __read_mostly is_aosp = 0;
+
+static void check_aosp(void)
+{
+	struct path path;
+	static const char asus_file[] = "/system/priv-app/AsusSettings/AsusSettings.apk";
+
+	if (kern_path(asus_file, LOOKUP_FOLLOW, &path) != 0) {
+		pr_info("[GF][%s] detected AOSP\n", __func__);
+		WRITE_ONCE(is_aosp, 1);
+	}
+}
 
 static void gf_enable_irq(struct gf_dev *gf_dev)
 {
@@ -326,8 +340,12 @@ static void nav_event_input(struct gf_dev *gf_dev, gf_nav_event_t nav_event)
 		break;
 	}
 
-	if ((nav_event != GF_NAV_FINGER_DOWN) &&
-			(nav_event != GF_NAV_FINGER_UP)) {
+	if (is_aosp && (nav_input == GF_NAV_INPUT_LONG_PRESS || nav_input == GF_NAV_INPUT_DOUBLE_CLICK))
+		return;
+
+	if (nav_input != 0 &&
+			nav_event != GF_NAV_FINGER_DOWN &&
+			nav_event != GF_NAV_FINGER_UP) {
 		input_report_key(gf_dev->input, nav_input, 1);
 		input_sync(gf_dev->input);
 		input_report_key(gf_dev->input, nav_input, 0);
@@ -366,16 +384,18 @@ static void gf_kernel_key_input(struct gf_dev *gf_dev, struct gf_key *gf_key)
 		input_sync(gf_dev->input);
 	}
 
-//report earlywakeup event (832);asus_bsp++
-	if ((gf_key->key == 832 || gf_key->key == 834) && (gf_key->value == 1))
-	{
-		pr_info("[GF][%s] received key 832, send earlywakeup event F22\n", __func__);
-		input_report_key(gf_dev->input, GF_KEY_INPUT_EARLYWAKEUP, 1);
-		input_sync(gf_dev->input);
-		input_report_key(gf_dev->input, GF_KEY_INPUT_EARLYWAKEUP, 0);
-		input_sync(gf_dev->input);
+	if (!is_aosp) {
+	//report earlywakeup event (832);asus_bsp++
+		if ((gf_key->key == 832 || gf_key->key == 834) && (gf_key->value == 1))
+		{
+			pr_info("[GF][%s] received key 832, send earlywakeup event F22\n", __func__);
+			input_report_key(gf_dev->input, GF_KEY_INPUT_EARLYWAKEUP, 1);
+			input_sync(gf_dev->input);
+			input_report_key(gf_dev->input, GF_KEY_INPUT_EARLYWAKEUP, 0);
+			input_sync(gf_dev->input);
+		}
+	//report earlywakeup event (832);asus_bsp--
 	}
-//report earlywakeup event (832);asus_bsp--
 }
 
 static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -574,6 +594,7 @@ static int drm_check_dt(struct device_node *np)
 			if (!IS_ERR(panel)) {
 				pr_info("[GF][%s] find drm_panel successfully\n", __func__);
 				active_panel = panel;
+				check_aosp();
 				return 0;
 			}
 		}
@@ -817,6 +838,38 @@ static const struct file_operations gf_fops = {
 #endif
 };
 
+static ssize_t proximity_state_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct gf_dev *gf_dev = dev_get_drvdata(dev);
+	int rc, val;
+
+	rc = kstrtoint(buf, 10, &val);
+	if (rc)
+		return -EINVAL;
+
+	gf_dev->proximity_state = !!val;
+
+	if (gf_dev->proximity_state) {
+		gf_disable_irq(gf_dev);
+	} else {
+		gf_enable_irq(gf_dev);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR(proximity_state, S_IWUSR, NULL, proximity_state_set);
+
+static struct attribute *attributes[] = {
+	&dev_attr_proximity_state.attr,
+	NULL
+};
+
+static const struct attribute_group attribute_group = {
+	.attrs = attributes,
+};
+
 static struct class *gf_class;
 #if defined(USE_SPI_BUS)
 static int gf_probe(struct spi_device *spi)
@@ -921,6 +974,14 @@ static int gf_probe(struct platform_device *pdev)
 	//gf_dev->ws = wakeup_source_register(dev, "fp_wakelock");
 	goodix_fp_register_for_panel_events();
 
+	dev_set_drvdata(&gf_dev->spi->dev, gf_dev);
+
+	status = sysfs_create_group(&gf_dev->spi->dev.kobj, &attribute_group);
+	if (status) {
+		pr_err("[GF][%s] proximity_state failed!!\n", __func__);
+		goto err_irq;
+	}
+
 	wake_lock_init(&fp_wakelock, &gf_dev->spi->dev, "fp_wakelock");
 	status = request_threaded_irq(gf_dev->irq, NULL, gf_irq,
 			IRQF_TRIGGER_RISING | IRQF_ONESHOT,
@@ -993,6 +1054,7 @@ static int gf_remove(struct platform_device *pdev)
 		gf_cleanup(gf_dev);
 
 	asus_gf_remove_sysfs(gf_dev);
+	sysfs_remove_group(&gf_dev->spi->dev.kobj, &attribute_group);
 	//if (active_panel)
 	//	panel_event_notifier_unregister(gf_dev->notifier_cookie);
 	mutex_unlock(&device_list_lock);

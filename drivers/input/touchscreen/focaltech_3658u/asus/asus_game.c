@@ -1,6 +1,8 @@
 #include "../focaltech_core.h"
 #include "../asus_tp.h"
 
+#define GAMING_MODE                  "driver/gaming_mode"
+
 /*****************************************************************************
 * Global variable or extern global variabls/functions
 *****************************************************************************/
@@ -271,6 +273,53 @@ static ssize_t fts_game_mode_store(
     return count;
 }
 
+static ssize_t asus_game_mode_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	struct fts_ts_data *ts_data = fts_data;
+	int len = 0;
+	ssize_t ret = 0;
+	char *buff = NULL;
+
+	buff = kzalloc(100, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+
+	len += sprintf(buff, "%d\n", ts_data->game_mode);
+	ret = simple_read_from_buffer(buf, count, ppos, buff, len);
+	kfree(buff);
+
+	return ret;
+}
+
+static ssize_t asus_game_mode_store(struct file *filp, const char *buff, size_t len, loff_t *off)
+{
+	struct fts_ts_data *ts_data = fts_data;
+	char messages[256];
+	memset(messages, 0, sizeof(messages));
+
+	if (len > 256)
+		len = 256;
+	if (copy_from_user(messages, buff, len))
+		return -EFAULT;
+
+	if (strncmp(messages, "0", 1) == 0) {
+		FTS_DEBUG("exit game mode, switch to 120HZ.");
+		ts_data->game_mode = DISABLE;
+		fts_write_reg(FTS_REG_REPORT_RATE, 1);
+	} else {
+		FTS_DEBUG("enter game mode, switch to 240HZ.");
+		ts_data->game_mode = ENABLE;
+		fts_write_reg(FTS_REG_REPORT_RATE, 0);
+	}
+
+	return len;
+}
+
+static struct proc_ops asus_game_mode_ops = {
+	.proc_write = asus_game_mode_store,
+	.proc_read  = asus_game_mode_read,
+};
+
 static ssize_t fts_rotation_mode_show(
     struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -382,6 +431,8 @@ int asus_game_create_sysfs(struct fts_ts_data *ts_data)
     } else {
         FTS_INFO("[EX]: asus_create_group() succeeded!!");
     }
+
+    proc_create(GAMING_MODE, 0666, NULL, &asus_game_mode_ops);
 
     ts_data->game_mode = DISABLE;
     ts_data->rotation_angle = 0;
